@@ -1,8 +1,7 @@
 const { Telegraf, Markup } = require('telegraf');
 const axios = require('axios');
+const cheerio = require('cheerio'); // 🔥 Automatically installed now via package.json
 const express = require('express');
-const fs = require('fs');
-const path = require('path');
 
 // --- CONFIGURATION ---
 const BOT_TOKEN = '8923597334:AAE7Hihd_qm3P_mo2t9eHRF9lEKrzIC9DSE'; // 🔥 AAPKA LATEST TOKEN HARDCODED
@@ -22,7 +21,7 @@ const USER_AGENTS = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0'
 ];
 
-// 🔥 FIXED EXPRESS ENVIRONMENT FOR RENDER PORT BINDING
+// 🔥 EXPRESS ENVIRONMENT FOR PORT BINDING
 const app = express();
 const PORT = process.env.PORT || 10000; 
 app.get('/', (req, res) => res.status(200).send('Flipkart Engine Online!'));
@@ -167,10 +166,10 @@ bot.command('stop_all', (ctx) => {
         activeUsers[chatId].forEach(item => clearInterval(item.interval));
         delete activeUsers[chatId];
         ctx.reply("🛑 Saari tracking band kar di gayi.");
-    } else { ctx.reply("⚠️ Koyi active tracking nahi mili."); }
+    } else { ctx.reply("⚠️ Koyi active tracking nahi mli."); }
 });
 
-// 🔥 STABLE REGEX STOCK ENGINE (NO CHEERIO NEEDED)
+// 🔥 VERIFIED HYBRID SCRAPER (CHEERIO + REGEX PROOF)
 async function checkFlipkartStock(ctx, chatId, targetUrl) {
     if (!activeUsers[chatId]) return;
     const itemIndex = activeUsers[chatId].findIndex(item => item.url === targetUrl);
@@ -179,28 +178,23 @@ async function checkFlipkartStock(ctx, chatId, targetUrl) {
     const randomAgent = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
 
     try {
-        const response = await axios.get(targetUrl, { 
-            headers: { 'User-Agent': randomAgent, 'Accept-Language': 'en-US,en;q=0.9' }, 
-            timeout: 10000 
-        });
+        const response = await axios.get(targetUrl, { headers: { 'User-Agent': randomAgent, 'Accept-Language': 'en-US,en;q=0.9' }, timeout: 10000 });
+        const $ = cheerio.load(response.data);
+        const pageText = $('body').text().toLowerCase();
         
-        const htmlContent = String(response.data).toLowerCase();
-        
-        // Strict availability checkers using safe string checks
-        const isOutOfStock = htmlContent.includes('currently unavailable') || 
-                             htmlContent.includes('this item is currently out of stock') || 
-                             htmlContent.includes('notify me');
+        // Strict negative matching to eliminate false alarms
+        const isOutOfStock = pageText.includes('currently unavailable') || 
+                             pageText.includes('this item is currently out of stock') || 
+                             pageText.includes('notify me');
                              
-        const hasBuyButtons = htmlContent.includes('buy now') || htmlContent.includes('add to cart');
+        const hasBuyButtons = pageText.includes('buy now') || pageText.includes('add to cart');
         
         if (!isOutOfStock && hasBuyButtons) {
             await bot.telegram.sendMessage(chatId, `🚨 STOCK AAGYA 🚨\n\n🔥 bhai flipkart pr stock aagya jaldi lga jake 🔥\n\nLink:\n${targetUrl}`,
                 Markup.inlineKeyboard([[Markup.button.callback('Stop Tracking 🛑', `stop_url_${itemIndex}`)]])
             ).catch(() => {});
         }
-    } catch (e) {
-        // Silent block for high reliability
-    }
+    } catch (e) {}
 }
 
 bot.launch().then(() => console.log("New Flipkart Bot Engine Connected..."));
