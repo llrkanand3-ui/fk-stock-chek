@@ -3,11 +3,11 @@ const axios = require('axios');
 const cheerio = require('cheerio'); 
 const express = require('express');
 
-// --- 🔒 FINAL CONFIGURATION ---
-const BOT_TOKEN = '8956337441:AAEnebTRW9a8pzHad1HMWnJR6QR6wLN8PD0'; // 🔥 AAPKA LATEST BOT TOKEN
+// --- 🔒 FINAL SECURE CONFIGURATION ---
+const BOT_TOKEN = '8956337441:AAEnebTRW9a8pzHad1HMWnJR6QR6wLN8PD0'; // 🔥 Aapka absolute correct token
 const ADMIN_CHAT_ID = '7485181331'; 
 const CHECK_INTERVAL = 15000; // 15 Seconds Stock Check Loop
-const RENDER_URL = 'https://new-flipkart-tracker.onrender.com/'; 
+const RENDER_URL = 'https://fk-stock-chek.onrender.com'; // 🔥 Aapka naya Render URL bina aakhiri slash ke
 // ----------------------------------------
 
 const bot = new Telegraf(BOT_TOKEN);
@@ -17,17 +17,31 @@ global.approvedList = global.approvedList || [ADMIN_CHAT_ID.toString()];
 
 const USER_AGENTS = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/605.1.15',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0'
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/605.1.15'
 ];
 
-// EXPRESS ENVIRONMENT FOR PORT BINDING
 const app = express();
-const PORT = process.env.PORT || 10000; 
-app.get('/', (req, res) => res.status(200).send('Flipkart Engine Online!'));
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Strict Port Binding Successful on ${PORT}`));
+const PORT = process.env.PORT || 10000;
 
-// SELF-PING ENGINE
+// 🔥 TELEGRAF WEBHOOK MIDDLEWARE (Conflict 409 ko jad se khatam karne ke liye)
+app.use(bot.webhookCallback('/telegram-webhook'));
+
+app.get('/', (req, res) => res.status(200).send('Flipkart Webhook Engine Online!'));
+
+app.listen(PORT, '0.0.0.0', async () => {
+    console.log(`🚀 Webhook Server listening on port ${PORT}`);
+    try {
+        // Automatically sets the webhook on Telegram side during boot
+        await bot.telegram.setWebhook(`${RENDER_URL}/telegram-webhook`, {
+            drop_pending_updates: true
+        });
+        console.log("🎯 Telegram Webhook successfully binded and flushed!");
+    } catch (err) {
+        console.log("⚠️ Webhook binding error: ", err.message);
+    }
+});
+
+// SELF-PING ENGINE (Keeps Render alive)
 setInterval(() => {
     axios.get(RENDER_URL).catch(() => {}); 
 }, 30000); 
@@ -42,7 +56,7 @@ bot.on('callback_query', async (ctx) => {
             const removedItem = activeUsers[chatId][index];
             clearInterval(removedItem.interval);
             activeUsers[chatId].splice(index, 1);
-            await ctx.answerCbQuery("Tracking band kar di gayi hai! 🛑").catch(() => {});
+            await ctx.answerCbQuery("Tracking band ho gayi! 🛑").catch(() => {});
             return ctx.reply(`🛑 Tracking stopped for:\n${removedItem.url}`, { disable_web_page_preview: true });
         } else {
             return ctx.answerCbQuery("⚠️ Already stopped.").catch(() => {});
@@ -74,7 +88,6 @@ bot.command('start_track', async (ctx) => {
     activeUsers[chatId].push({ url: flipkartLink, interval: intervalId });
     ctx.reply("🚀 Tracking chalu ho gayi hai...");
     
-    // Pehla check turant
     checkFlipkartStock(ctx, chatId, flipkartLink);
 });
 
@@ -101,7 +114,7 @@ bot.command('stop_all', (ctx) => {
     } else { ctx.reply("⚠️ Koyi active tracking nahi mili."); }
 });
 
-// --- 🔬 HIGH-PRECISION STOCK CHECKER ---
+// --- 🔬 REAL-TIME STOCK ALERTS ---
 async function checkFlipkartStock(ctx, chatId, targetUrl) {
     if (!activeUsers[chatId]) return;
     const itemIndex = activeUsers[chatId].findIndex(item => item.url === targetUrl);
@@ -120,24 +133,18 @@ async function checkFlipkartStock(ctx, chatId, targetUrl) {
             timeout: 10000 
         });
         
-        const $ = cheerio.load(response.data);
         const htmlLower = response.data.toString().toLowerCase();
         
-        // 🔥 STRIKE 1: Button Elements ke base par strict check
+        // Asli buy/cart buttons ki presence check karega
         const hasBuyNowButton = htmlLower.includes('buy now') || htmlLower.includes('add to cart');
-        
-        // 🔥 STRIKE 2: Out of stock labels check
         const isOutOfStockText = htmlLower.includes('currently unavailable') || htmlLower.includes('this item is currently out of stock');
 
-        // Agar "Buy Now" ka element maujood hai aur out of stock ka pakka dawa nahi hai, toh stock hai!
         if (hasBuyNowButton && !isOutOfStockText) {
             await bot.telegram.sendMessage(chatId, `🚨 **STOCK AAGYA HAII LGA JAKE FASTTT** 🚨\n\nLink:\n${targetUrl}`,
                 Markup.inlineKeyboard([[Markup.button.callback('Stop Tracking 🛑', `stop_url_${itemIndex}`)]])
             ).catch(() => {});
         }
     } catch (e) {
-        // High stability silent catch
+        // Anti-crash silence
     }
 }
-
-bot.launch().then(() => console.log("New Flipkart Bot Engine Connected..."));
