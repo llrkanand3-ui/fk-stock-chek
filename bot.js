@@ -1,14 +1,14 @@
 const { Telegraf, Markup } = require('telegraf');
 const axios = require('axios');
-const cheerio = require('cheerio'); // 🔥 Automatically installed now via package.json
+const cheerio = require('cheerio'); 
 const express = require('express');
 
-// --- CONFIGURATION ---
-const BOT_TOKEN = '8923597334:AAE7Hihd_qm3P_mo2t9eHRF9lEKrzIC9DSE'; // 🔥 AAPKA LATEST TOKEN HARDCODED
+// --- 🔒 FINAL CORRECTED CONFIGURATION ---
+const BOT_TOKEN = '8956337441:AAEnebTRW9a8pzHad1HMWnJR6QR6wLN8PD0'; // 🔥 TOKENS LOCHA RESOLVED PERMANENTLY!
 const ADMIN_CHAT_ID = '7485181331'; 
 const CHECK_INTERVAL = 15000; // 15 Seconds Stock Check
 const RENDER_URL = 'https://new-flipkart-tracker.onrender.com/'; 
-// ---------------------
+// ----------------------------------------
 
 const bot = new Telegraf(BOT_TOKEN);
 const activeUsers = {};
@@ -166,10 +166,9 @@ bot.command('stop_all', (ctx) => {
         activeUsers[chatId].forEach(item => clearInterval(item.interval));
         delete activeUsers[chatId];
         ctx.reply("🛑 Saari tracking band kar di gayi.");
-    } else { ctx.reply("⚠️ Koyi active tracking nahi mli."); }
+    } else { ctx.reply("⚠️ Koyi active tracking nahi mili."); }
 });
 
-// 🔥 VERIFIED HYBRID SCRAPER (CHEERIO + REGEX PROOF)
 async function checkFlipkartStock(ctx, chatId, targetUrl) {
     if (!activeUsers[chatId]) return;
     const itemIndex = activeUsers[chatId].findIndex(item => item.url === targetUrl);
@@ -182,7 +181,6 @@ async function checkFlipkartStock(ctx, chatId, targetUrl) {
         const $ = cheerio.load(response.data);
         const pageText = $('body').text().toLowerCase();
         
-        // Strict negative matching to eliminate false alarms
         const isOutOfStock = pageText.includes('currently unavailable') || 
                              pageText.includes('this item is currently out of stock') || 
                              pageText.includes('notify me');
