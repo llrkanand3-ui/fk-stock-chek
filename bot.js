@@ -1,13 +1,14 @@
 const { Telegraf, Markup } = require('telegraf');
 const axios = require('axios');
-const cheerio = require('cheerio');
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 
 // --- CONFIGURATION ---
-const BOT_TOKEN = '8923597334:AAE7Hihd_qm3P_mo2t9eHRF9lEKrzIC9DSE'; // 🔥 APNA NEW FRESH TOKEN HARDCODED
+const BOT_TOKEN = '8923597334:AAE7Hihd_qm3P_mo2t9eHRF9lEKrzIC9DSE'; // 🔥 AAPKA LATEST TOKEN HARDCODED
 const ADMIN_CHAT_ID = '7485181331'; 
 const CHECK_INTERVAL = 15000; // 15 Seconds Stock Check
-const RENDER_URL = 'https://new-flipkart-tracker.onrender.com/'; // Locked!
+const RENDER_URL = 'https://new-flipkart-tracker.onrender.com/'; 
 // ---------------------
 
 const bot = new Telegraf(BOT_TOKEN);
@@ -23,14 +24,14 @@ const USER_AGENTS = [
 
 // 🔥 FIXED EXPRESS ENVIRONMENT FOR RENDER PORT BINDING
 const app = express();
-const PORT = process.env.PORT || 10000; // Strictly binded to Render's preferred port
-app.get('/', (req, res) => res.status(200).send('Financial Core Engine Fixed Live!'));
+const PORT = process.env.PORT || 10000; 
+app.get('/', (req, res) => res.status(200).send('Flipkart Engine Online!'));
 app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Strict Port Binding Successful on ${PORT}`));
 
-// 🔥 WATERPROOF SELF-PING ENGINE (Clean & Silent)
+// 🔥 SELF-PING ENGINE
 setInterval(() => {
     axios.get(RENDER_URL).catch(() => {}); 
-}, 30000); // Strict 30 Seconds!
+}, 30000); 
 
 bot.on('callback_query', async (ctx) => {
     const data = ctx.callbackQuery.data;
@@ -169,6 +170,7 @@ bot.command('stop_all', (ctx) => {
     } else { ctx.reply("⚠️ Koyi active tracking nahi mili."); }
 });
 
+// 🔥 STABLE REGEX STOCK ENGINE (NO CHEERIO NEEDED)
 async function checkFlipkartStock(ctx, chatId, targetUrl) {
     if (!activeUsers[chatId]) return;
     const itemIndex = activeUsers[chatId].findIndex(item => item.url === targetUrl);
@@ -177,15 +179,19 @@ async function checkFlipkartStock(ctx, chatId, targetUrl) {
     const randomAgent = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
 
     try {
-        const response = await axios.get(targetUrl, { headers: { 'User-Agent': randomAgent, 'Accept-Language': 'en-US,en;q=0.9' }, timeout: 10000 });
-        const $ = cheerio.load(response.data);
-        const pageText = $('body').text().toLowerCase();
+        const response = await axios.get(targetUrl, { 
+            headers: { 'User-Agent': randomAgent, 'Accept-Language': 'en-US,en;q=0.9' }, 
+            timeout: 10000 
+        });
         
-        const isOutOfStock = pageText.includes('currently unavailable') || 
-                             pageText.includes('this item is currently out of stock') || 
-                             pageText.includes('notify me');
+        const htmlContent = String(response.data).toLowerCase();
+        
+        // Strict availability checkers using safe string checks
+        const isOutOfStock = htmlContent.includes('currently unavailable') || 
+                             htmlContent.includes('this item is currently out of stock') || 
+                             htmlContent.includes('notify me');
                              
-        const hasBuyButtons = pageText.includes('buy now') || pageText.includes('add to cart');
+        const hasBuyButtons = htmlContent.includes('buy now') || htmlContent.includes('add to cart');
         
         if (!isOutOfStock && hasBuyButtons) {
             await bot.telegram.sendMessage(chatId, `🚨 STOCK AAGYA 🚨\n\n🔥 bhai flipkart pr stock aagya jaldi lga jake 🔥\n\nLink:\n${targetUrl}`,
@@ -193,7 +199,7 @@ async function checkFlipkartStock(ctx, chatId, targetUrl) {
             ).catch(() => {});
         }
     } catch (e) {
-        // Silent error filter for high stability
+        // Silent block for high reliability
     }
 }
 
