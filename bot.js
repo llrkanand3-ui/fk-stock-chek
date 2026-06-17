@@ -4,9 +4,9 @@ const cheerio = require('cheerio');
 const express = require('express');
 
 // --- 🔒 FINAL CONFIGURATION ---
-const BOT_TOKEN = '8956337441:AAEnebTRW9a8pzHad1HMWnJR6QR6wLN8PD0'; // 🔥 AAPKA NEW BOT TOKEN
+const BOT_TOKEN = '8956337441:AAEnebTRW9a8pzHad1HMWnJR6QR6wLN8PD0'; // 🔥 AAPKA LATEST BOT TOKEN
 const ADMIN_CHAT_ID = '7485181331'; 
-const CHECK_INTERVAL = 15000; // 15 Seconds Stock Check
+const CHECK_INTERVAL = 15000; // 15 Seconds Stock Check Loop
 const RENDER_URL = 'https://new-flipkart-tracker.onrender.com/'; 
 // ----------------------------------------
 
@@ -16,9 +16,9 @@ const activeUsers = {};
 global.approvedList = global.approvedList || [ADMIN_CHAT_ID.toString()];
 
 const USER_AGENTS = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/605.1.15',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0'
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/605.1.15',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0'
 ];
 
 // EXPRESS ENVIRONMENT FOR PORT BINDING
@@ -73,6 +73,8 @@ bot.command('start_track', async (ctx) => {
     const intervalId = setInterval(() => { checkFlipkartStock(ctx, chatId, flipkartLink); }, CHECK_INTERVAL);
     activeUsers[chatId].push({ url: flipkartLink, interval: intervalId });
     ctx.reply("🚀 Tracking chalu ho gayi hai...");
+    
+    // Pehla check turant
     checkFlipkartStock(ctx, chatId, flipkartLink);
 });
 
@@ -99,6 +101,7 @@ bot.command('stop_all', (ctx) => {
     } else { ctx.reply("⚠️ Koyi active tracking nahi mili."); }
 });
 
+// --- 🔬 HIGH-PRECISION STOCK CHECKER ---
 async function checkFlipkartStock(ctx, chatId, targetUrl) {
     if (!activeUsers[chatId]) return;
     const itemIndex = activeUsers[chatId].findIndex(item => item.url === targetUrl);
@@ -107,22 +110,34 @@ async function checkFlipkartStock(ctx, chatId, targetUrl) {
     const randomAgent = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
 
     try {
-        const response = await axios.get(targetUrl, { headers: { 'User-Agent': randomAgent, 'Accept-Language': 'en-US,en;q=0.9' }, timeout: 10000 });
+        const response = await axios.get(targetUrl, { 
+            headers: { 
+                'User-Agent': randomAgent, 
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache'
+            }, 
+            timeout: 10000 
+        });
+        
         const $ = cheerio.load(response.data);
-        const pageText = $('body').text().toLowerCase();
+        const htmlLower = response.data.toString().toLowerCase();
         
-        const isOutOfStock = pageText.includes('currently unavailable') || 
-                             pageText.includes('this item is currently out of stock') || 
-                             pageText.includes('notify me');
-                             
-        const hasBuyButtons = pageText.includes('buy now') || pageText.includes('add to cart');
+        // 🔥 STRIKE 1: Button Elements ke base par strict check
+        const hasBuyNowButton = htmlLower.includes('buy now') || htmlLower.includes('add to cart');
         
-        if (!isOutOfStock && hasBuyButtons) {
-            await bot.telegram.sendMessage(chatId, `🚨 STOCK AAGYA 🚨\n\n🔥 bhai flipkart pr stock aagya jaldi lga jake 🔥\n\nLink:\n${targetUrl}`,
+        // 🔥 STRIKE 2: Out of stock labels check
+        const isOutOfStockText = htmlLower.includes('currently unavailable') || htmlLower.includes('this item is currently out of stock');
+
+        // Agar "Buy Now" ka element maujood hai aur out of stock ka pakka dawa nahi hai, toh stock hai!
+        if (hasBuyNowButton && !isOutOfStockText) {
+            await bot.telegram.sendMessage(chatId, `🚨 **STOCK AAGYA HAII LGA JAKE FASTTT** 🚨\n\nLink:\n${targetUrl}`,
                 Markup.inlineKeyboard([[Markup.button.callback('Stop Tracking 🛑', `stop_url_${itemIndex}`)]])
             ).catch(() => {});
         }
-    } catch (e) {}
+    } catch (e) {
+        // High stability silent catch
+    }
 }
 
 bot.launch().then(() => console.log("New Flipkart Bot Engine Connected..."));
