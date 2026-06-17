@@ -1,220 +1,200 @@
-const { Telegraf } = require('telegraf');
+const { Telegraf, Markup } = require('telegraf');
 const axios = require('axios');
+const cheerio = require('cheerio');
 const express = require('express');
-const fs = require('fs');
-const path = require('path');
 
-// --- 🔒 CONFIGURATION ---
-const BOT_TOKEN = '8956337441:AAEnebTRW9a8pzHad1HMWnJR6QR6wLN8PD0'; 
+// --- CONFIGURATION ---
+const BOT_TOKEN = '8923597334:AAE7Hihd_qm3P_mo2t9eHRF9lEKrzIC9DSE'; // 🔥 APNA NEW FRESH TOKEN HARDCODED
 const ADMIN_CHAT_ID = '7485181331'; 
-const CHECK_INTERVAL = 15000; // 🔥 STRICT 15 SECOND REAL-TIME LOOP
-const RENDER_URL = 'https://new-flipkart-tracker.onrender.com'; 
-const DB_FILE = path.join(__dirname, 'database.json');
-// ------------------------
+const CHECK_INTERVAL = 15000; // 15 Seconds Stock Check
+const RENDER_URL = 'https://new-flipkart-tracker.onrender.com/'; // Locked!
+// ---------------------
 
 const bot = new Telegraf(BOT_TOKEN);
 const activeUsers = {};
 
-let approvedUsersCache = [];
+global.approvedList = global.approvedList || [ADMIN_CHAT_ID.toString()];
 
-function initDatabase() {
-    try {
-        if (!fs.existsSync(DB_FILE)) {
-            const initialData = [ADMIN_CHAT_ID.toString()];
-            fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2));
-            approvedUsersCache = initialData;
-            return;
-        }
-        const fileContent = fs.readFileSync(DB_FILE, 'utf8');
-        if (!fileContent.trim()) {
-            approvedUsersCache = [ADMIN_CHAT_ID.toString()];
-            return;
-        }
-        const users = JSON.parse(fileContent);
-        if (!Array.isArray(users)) {
-            approvedUsersCache = [ADMIN_CHAT_ID.toString()];
-            return;
-        }
-        if (!users.includes(ADMIN_CHAT_ID.toString())) {
-            users.push(ADMIN_CHAT_ID.toString());
-        }
-        approvedUsersCache = users.map(String);
-    } catch (e) {
-        approvedUsersCache = [ADMIN_CHAT_ID.toString()];
-    }
-}
+const USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/605.1.15',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0'
+];
 
-initDatabase();
-
-function isUserApproved(userId) {
-    if (!userId) return false;
-    return approvedUsersCache.includes(userId.toString());
-}
-
+// 🔥 FIXED EXPRESS ENVIRONMENT FOR RENDER PORT BINDING
 const app = express();
-const PORT = process.env.PORT || 10000;
+const PORT = process.env.PORT || 10000; // Strictly binded to Render's preferred port
 app.get('/', (req, res) => res.status(200).send('Financial Core Engine Fixed Live!'));
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Port Binding Successful on ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Strict Port Binding Successful on ${PORT}`));
 
+// 🔥 WATERPROOF SELF-PING ENGINE (Clean & Silent)
 setInterval(() => {
     axios.get(RENDER_URL).catch(() => {}); 
-}, 15000); 
+}, 30000); // Strict 30 Seconds!
 
-// --- 🛠️ COMMAND-BASED TRACKING MATRIX ---
+bot.on('callback_query', async (ctx) => {
+    const data = ctx.callbackQuery.data;
+    const userId = ctx.from.id.toString();
+    
+    if (data.startsWith('stop_url_')) {
+        const index = parseInt(data.split('_')[2]);
+        const chatId = ctx.chat.id.toString();
+        
+        if (activeUsers[chatId] && activeUsers[chatId][index]) {
+            const removedItem = activeUsers[chatId][index];
+            clearInterval(removedItem.interval);
+            activeUsers[chatId].splice(index, 1);
+            await ctx.answerCbQuery("Tracking band kar di gayi hai! 🛑").catch(() => {});
+            return ctx.reply(`🛑 Tracking stopped for:\n${removedItem.url}`, { disable_web_page_preview: true });
+        } else {
+            return ctx.answerCbQuery("⚠️ Already stopped.").catch(() => {});
+        }
+    }
+
+    if (userId !== ADMIN_CHAT_ID.toString()) return ctx.answerCbQuery("Unauthorized!").catch(() => {});
+    const targetUserId = data.split('_')[1];
+    
+    if (data.startsWith('approve_')) {
+        if (!global.approvedList.includes(targetUserId.toString())) {
+            global.approvedList.push(targetUserId.toString());
+        }
+        await ctx.editMessageText(`${ctx.callbackQuery.message.text}\n\n✅ **Status: Approved!**`).catch(() => {});
+        bot.telegram.sendMessage(targetUserId, "🥳 Approved! Use: `/start_track <Flipkart_URL>`").catch(() => {});
+    } else if (data.startsWith('decline_')) {
+        await ctx.editMessageText(`${ctx.callbackQuery.message.text}\n\n❌ **Status: Declined!**`).catch(() => {});
+    }
+    await ctx.answerCbQuery().catch(() => {});
+});
 
 bot.start((ctx) => {
     const userId = ctx.from.id.toString();
-    if (!isUserApproved(userId)) return ctx.reply("🔒 Access Denied!");
-    ctx.reply("🤖 Spy Engine Live! Commands use karo:\n\n1. `/start_track <Flipkart_URL>` - Tracking chalu karne ke liye\n2. `/list_track` - Active tracking dekhne ke liye\n3. `/stop1`, `/stop2` - Specific target stop karne ke liye");
+    const name = `${ctx.from.first_name || ''} ${ctx.from.last_name || ''}`.trim() || 'No Name';
+    
+    if (global.approvedList.includes(userId)) {
+        return ctx.reply("🤖 New Flipkart Tracker Bot Active!\n\n🔹 `/start_track <URL>`\n🔹 `/list_track`\n🔹 `/stop_all`");
+    }
+    
+    ctx.reply(`🔒 **Access Denied!**\n\nAap abhi approved nahi hain.\nAapki Telegram ID: \`${userId}\`\n\nAdmin ko apni ID send karein approval ke liye.`);
+    
+    bot.telegram.sendMessage(ADMIN_CHAT_ID, 
+        `🚨 **New Flipkart Bot Request!**\n\n👤 Name: ${name}\n🆔 ID: \`${userId}\`\n\n👉 Approve manually:\n\`/approve ${userId}\``,
+        Markup.inlineKeyboard([[Markup.button.callback('Approve ✅', `approve_${userId}`), Markup.button.callback('Decline ❌', `decline_${userId}`)]])
+    ).catch(() => {});
+});
+
+bot.command('approve', (ctx) => {
+    if (ctx.from.id.toString() !== ADMIN_CHAT_ID.toString()) return ctx.reply("❌ Admin Only!");
+    const args = ctx.message.text.split(' ').filter(arg => arg.trim() !== '');
+    if (args.length < 2) return ctx.reply("⚠️ Format: `/approve <User_ID>`");
+    
+    const targetUserId = args[1].trim();
+    if (!global.approvedList.includes(targetUserId)) {
+        global.approvedList.push(targetUserId);
+        ctx.reply(`✅ User ID \`${targetUserId}\` ko successfully approve kar diya gaya hai.`);
+        bot.telegram.sendMessage(targetUserId, "🥳 Approved! Use: `/start_track <Flipkart_URL>`").catch(() => {});
+    } else {
+        ctx.reply("⚠️ Yeh user pehle se approved hai.");
+    }
+});
+
+bot.command('list_users', (ctx) => {
+    if (ctx.from.id.toString() !== ADMIN_CHAT_ID.toString()) return ctx.reply("❌ Admin Only!");
+    if (global.approvedList.length <= 1) return ctx.reply("👥 Koyi approved user nahi hai.");
+    let msg = "👥 **Flipkart Bot Approved Users List:**\n\n";
+    let count = 1;
+    global.approvedList.forEach((userId) => {
+        if (userId !== ADMIN_CHAT_ID.toString()) {
+            msg += `${count}. 🆔 User ID: \`${userId}\`\n\n`;
+            count++;
+        }
+    });
+    ctx.reply(msg, { parse_mode: 'Markdown' });
+});
+
+bot.command('remove_user', (ctx) => {
+    if (ctx.from.id.toString() !== ADMIN_CHAT_ID.toString()) return ctx.reply("❌ Admin Only!");
+    const args = ctx.message.text.split(' ').filter(arg => arg.trim() !== '');
+    if (args.length < 2) return ctx.reply("⚠️ Format: `/remove_user <User_ID>`");
+    const targetUserId = args[1].trim();
+    
+    const index = global.approvedList.indexOf(targetUserId);
+    if (index > -1) {
+        global.approvedList.splice(index, 1);
+        if (activeUsers[targetUserId]) {
+            activeUsers[targetUserId].forEach(item => clearInterval(item.interval));
+            delete activeUsers[targetUserId];
+        }
+        ctx.reply(`✅ User ID ${targetUserId} remove ho gaya.`);
+        bot.telegram.sendMessage(targetUserId, "🔒 Admin ne aapka access remove kar diya hai.").catch(() => {});
+    } else { ctx.reply("⚠️ ID nahi mili."); }
 });
 
 bot.command('start_track', async (ctx) => {
     const userId = ctx.from.id.toString();
-    if (!isUserApproved(userId)) return;
-
-    const parts = ctx.message.text.split(' ');
-    if (parts.length < 2) {
-        return ctx.reply("❌ Format galti hai! Aise use karo:\n`/start_track https://flipkart.com/...`");
-    }
-
-    const fkLink = parts.slice(1).join(' ').trim();
-    if (!fkLink.includes('flipkart.com/')) {
-        return ctx.reply("❌ Abe saaf Flipkart ka link dalo bhai!");
-    }
-
-    const chatId = ctx.chat.id.toString();
-    let pid = "";
-    try {
-        const urlObj = new URL(fkLink);
-        pid = urlObj.searchParams.get('pid');
-    } catch (e) {}
-
-    if (!pid) {
-        const pidMatch = fkLink.match(/pid=([A-Z0-9]+)/i);
-        if (pidMatch) pid = pidMatch[1];
-    }
-    if (!pid) pid = Buffer.from(fkLink).toString('base64').substring(0, 10);
-
-    if (!activeUsers[chatId]) activeUsers[chatId] = [];
-    if (activeUsers[chatId].some(item => item.id === pid)) {
-        return ctx.reply("⚠️ Abe ye target pehle se hi radar par locked hai!");
-    }
-
-    const intervalId = setInterval(() => { 
-        checkFinancialFluctuations(ctx, chatId, pid, fkLink); 
-    }, CHECK_INTERVAL);
-
-    activeUsers[chatId].push({
-        id: pid,
-        url: fkLink,
-        interval: intervalId
-    });
-
-    ctx.reply(`🕵️‍♂️ **Undercover Agent Active!**\n\nHar 15 second mein strict monitoring chalegi. Jaise hi 'Buy Now' button activate hoga, bomb blast alerts chalu ho jayenge!`);
+    if (!global.approvedList.includes(userId)) return ctx.reply("❌ Unapproved!");
     
-    checkFinancialFluctuations(ctx, chatId, pid, fkLink);
+    const chatId = ctx.chat.id.toString();
+    const args = ctx.message.text.replace(/\n/g, ' ').split(' ').filter(arg => arg.trim() !== '');
+    const flipkartLink = args.find(arg => arg.includes('flipkart.com') || arg.includes('fkrt.it'));
+    if (!flipkartLink) return ctx.reply("❌ Valid Flipkart link bhejo!");
+    if (!activeUsers[chatId]) activeUsers[chatId] = [];
+    if (activeUsers[chatId].some(item => item.url === flipkartLink)) return ctx.reply("⚠️ Yeh pehle se track ho raha hai!");
+    
+    const intervalId = setInterval(() => { checkFlipkartStock(ctx, chatId, flipkartLink); }, CHECK_INTERVAL);
+    activeUsers[chatId].push({ url: flipkartLink, interval: intervalId });
+    ctx.reply("🚀 Tracking chalu ho gayi hai...");
+    checkFlipkartStock(ctx, chatId, flipkartLink);
 });
 
 bot.command('list_track', (ctx) => {
     const userId = ctx.from.id.toString();
-    if (!isUserApproved(userId)) return;
-    const chatId = ctx.chat.id.toString();
-
-    if (!activeUsers[chatId] || activeUsers[chatId].length === 0) {
-        return ctx.reply("😴 Abhi koi target radar par nahi hai, sab shant hai.");
-    }
-
-    let msg = "📋 <b>Radar Par Locked Targets Matrix:</b>\n\n";
-    activeUsers[chatId].forEach((item, index) => {
-        msg += `🔢 <b>Target [${index + 1}]</b>\n📦 <b>ID:</b> <code>${item.id}</code>\n🔗 <b>Link:</b> ${item.url}\n🛑 <b>Stop Command:</b> /stop${index + 1}\n\n`;
-    });
-
-    ctx.reply(msg, { parse_mode: 'HTML', disable_web_page_preview: true });
-});
-
-bot.on('text', async (ctx, next) => {
-    const text = ctx.message.text.trim().toLowerCase();
+    if (!global.approvedList.includes(userId)) return ctx.reply("❌ Unapproved!");
     
-    if (text.startsWith('/stop')) {
-        const userId = ctx.from.id.toString();
-        if (!isUserApproved(userId)) return;
-        const chatId = ctx.chat.id.toString();
-
-        const numStr = text.replace('/stop', '').trim();
-        const index = parseInt(numStr) - 1;
-
-        if (isNaN(index) || !activeUsers[chatId] || !activeUsers[chatId][index]) {
-            return ctx.reply("⚠️ Galat Target Number! `/list_track` karke check karo.");
-        }
-
-        const removedItem = activeUsers[chatId][index];
-        clearInterval(removedItem.interval);
-        activeUsers[chatId].splice(index, 1);
-
-        ctx.reply(`🛑 <b>Target [${index + 1}] Permanent Stop Ho Gaya!</b>\nAb list se saaf ho chuka hai aur alerts band hain bhai.`, { parse_mode: 'HTML' });
-        return;
-    }
-    return next();
+    const chatId = ctx.chat.id.toString();
+    if (!activeUsers[chatId] || activeUsers[chatId].length === 0) return ctx.reply("😴 Koyi active tracking nahi hai.");
+    let msg = "📋 **Active Tracking Links:**\n\n";
+    activeUsers[chatId].forEach((item, i) => { msg += `${i + 1}. ${item.url}\n\n`; });
+    ctx.reply(msg, { parse_mode: 'Markdown', disable_web_page_preview: true });
 });
 
-// --- 🔬 HIGH-PRECISION REAL-TIME STOCK SCRAPER ENGINE ---
-async function checkFinancialFluctuations(ctx, chatId, pid, originalUrl) {
+bot.command('stop_all', (ctx) => {
+    const userId = ctx.from.id.toString();
+    if (!global.approvedList.includes(userId)) return ctx.reply("❌ Unapproved!");
+    
+    const chatId = ctx.chat.id.toString();
+    if (activeUsers[chatId] && activeUsers[chatId].length > 0) {
+        activeUsers[chatId].forEach(item => clearInterval(item.interval));
+        delete activeUsers[chatId];
+        ctx.reply("🛑 Saari tracking band kar di gayi.");
+    } else { ctx.reply("⚠️ Koyi active tracking nahi mili."); }
+});
+
+async function checkFlipkartStock(ctx, chatId, targetUrl) {
     if (!activeUsers[chatId]) return;
-    const itemIndex = activeUsers[chatId].findIndex(item => item.id === pid);
+    const itemIndex = activeUsers[chatId].findIndex(item => item.url === targetUrl);
     if (itemIndex === -1) return;
 
+    const randomAgent = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+
     try {
-        const response = await axios.get(originalUrl, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Cache-Control': 'no-cache',
-                'Pragma': 'no-cache'
-            },
-            timeout: 10000 
-        });
-
-        const html = response.data;
+        const response = await axios.get(targetUrl, { headers: { 'User-Agent': randomAgent, 'Accept-Language': 'en-US,en;q=0.9' }, timeout: 10000 });
+        const $ = cheerio.load(response.data);
+        const pageText = $('body').text().toLowerCase();
         
-        // 🔥 STRIKING RE-DESIGN FOR REAL-TIME AVAILABILITY
-        // Page par asli cart ya order wale button ke keyword check karenge taaki fake alerts ya block na fari ho
-        const hasBuyNow = html.includes('BUY NOW') || html.includes('Buy Now') || html.includes('buy now');
-        const hasAddToCart = html.includes('ADD TO CART') || html.includes('Add to Cart') || html.includes('add to cart');
+        const isOutOfStock = pageText.includes('currently unavailable') || 
+                             pageText.includes('this item is currently out of stock') || 
+                             pageText.includes('notify me');
+                             
+        const hasBuyButtons = pageText.includes('buy now') || pageText.includes('add to cart');
         
-        // Final strict check confirmation: Agar koi bhi kharidari ka rasta khula hai
-        const isProductAvailable = hasBuyNow || hasAddToCart;
-
-        let currentPrice = "N/A";
-        const jsonLdMatch = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/i);
-        if (jsonLdMatch && jsonLdMatch[1]) {
-            try {
-                const jsonData = JSON.parse(jsonLdMatch[1].trim());
-                const itemData = Array.isArray(jsonData) ? jsonData.find(i => i["@type"] === "Product" || i.offers) : jsonData;
-                if (itemData && itemData.offers) {
-                    let priceVal = Array.isArray(itemData.offers) ? itemData.offers[0].price : itemData.offers.price;
-                    if (priceVal) currentPrice = String(priceVal).replace(/[^0-9]/g, '');
-                }
-            } catch (e) {}
-        }
-
-        if (currentPrice === "N/A") {
-            let priceMatch = html.match(/"price"\s*:\s*"?([0-9]+)"?/i);
-            if (priceMatch) currentPrice = priceMatch[1];
-        }
-
-        // 🚨 IF IN STOCK -> LOOP ALERT EVERY 15 SECONDS NON-STOP
-        if (isProductAvailable) {
-            let priceDisplay = currentPrice !== "N/A" ? `₹${currentPrice}` : "N/A";
-            
-            await bot.telegram.sendMessage(chatId, 
-                `🔥 <b>Oo bhaiiii jaldi jaa STOCK MEIN AA GYA HAI!</b> 🔥\n\n💰 Live Price: <b>${priceDisplay}</b>\n\nLink par click karo aur loot lo:\n${originalUrl}`,
-                { parse_mode: 'HTML' }
+        if (!isOutOfStock && hasBuyButtons) {
+            await bot.telegram.sendMessage(chatId, `🚨 STOCK AAGYA 🚨\n\n🔥 bhai flipkart pr stock aagya jaldi lga jake 🔥\n\nLink:\n${targetUrl}`,
+                Markup.inlineKeyboard([[Markup.button.callback('Stop Tracking 🛑', `stop_url_${itemIndex}`)]])
             ).catch(() => {});
         }
-
-    } catch (err) {}
+    } catch (e) {
+        // Silent error filter for high stability
+    }
 }
 
-bot.telegram.deleteWebhook().then(() => {
-    bot.launch().then(() => console.log("Command Spy Engine Live on 15 Sec Loops..."));
-});
+bot.launch().then(() => console.log("New Flipkart Bot Engine Connected..."));
