@@ -7,7 +7,7 @@ const path = require('path');
 // --- 🔒 CONFIGURATION ---
 const BOT_TOKEN = '8956337441:AAEnebTRW9a8pzHad1HMWnJR6QR6wLN8PD0'; 
 const ADMIN_CHAT_ID = '7485181331'; 
-const CHECK_INTERVAL = 15000; // 🔥 STRICT 15 SECOND LOOP
+const CHECK_INTERVAL = 15000; // 🔥 STRICT 15 SECOND REAL-TIME LOOP
 const RENDER_URL = 'https://new-flipkart-tracker.onrender.com'; 
 const DB_FILE = path.join(__dirname, 'database.json');
 // ------------------------
@@ -60,16 +60,14 @@ setInterval(() => {
     axios.get(RENDER_URL).catch(() => {}); 
 }, 15000); 
 
-// --- 🛠️ NO CONTROL PANEL COMMAND-BASED SYSTEM ---
+// --- 🛠️ COMMAND-BASED TRACKING MATRIX ---
 
-// 1. Start Command
 bot.start((ctx) => {
     const userId = ctx.from.id.toString();
     if (!isUserApproved(userId)) return ctx.reply("🔒 Access Denied!");
-    ctx.reply("🤖 Spy Engine Live! Commands use karo:\n\n1. `/start_track <Flipkart_URL>` - Tracking chalu karne ke liye\n2. `/list_track` - Active tracking dekhne ke liye\n3. `/stop1`, `/stop2` - Specific number stop karne ke liye");
+    ctx.reply("🤖 Spy Engine Live! Commands use karo:\n\n1. `/start_track <Flipkart_URL>` - Tracking chalu karne ke liye\n2. `/list_track` - Active tracking dekhne ke liye\n3. `/stop1`, `/stop2` - Specific target stop karne ke liye");
 });
 
-// 2. Start Track Command (`/start_track url`)
 bot.command('start_track', async (ctx) => {
     const userId = ctx.from.id.toString();
     if (!isUserApproved(userId)) return;
@@ -102,7 +100,6 @@ bot.command('start_track', async (ctx) => {
         return ctx.reply("⚠️ Abe ye target pehle se hi radar par locked hai!");
     }
 
-    // Set interval loop at exactly 15 seconds
     const intervalId = setInterval(() => { 
         checkFinancialFluctuations(ctx, chatId, pid, fkLink); 
     }, CHECK_INTERVAL);
@@ -113,13 +110,11 @@ bot.command('start_track', async (ctx) => {
         interval: intervalId
     });
 
-    ctx.reply(`🕵️‍♂️ **Undercover Agent Active!**\n\nHar 15 second mein stock check kiya jaayega. Jaise hi stock mein aayega, non-stop khabar milegi!`);
+    ctx.reply(`🕵️‍♂️ **Undercover Agent Active!**\n\nHar 15 second mein strict monitoring chalegi. Jaise hi 'Buy Now' button activate hoga, bomb blast alerts chalu ho jayenge!`);
     
-    // Immediate check
     checkFinancialFluctuations(ctx, chatId, pid, fkLink);
 });
 
-// 3. List Track Command
 bot.command('list_track', (ctx) => {
     const userId = ctx.from.id.toString();
     if (!isUserApproved(userId)) return;
@@ -137,7 +132,6 @@ bot.command('list_track', (ctx) => {
     ctx.reply(msg, { parse_mode: 'HTML', disable_web_page_preview: true });
 });
 
-// 4. Dynamic Text Interceptor for /stop1, /stop2 etc.
 bot.on('text', async (ctx, next) => {
     const text = ctx.message.text.trim().toLowerCase();
     
@@ -157,13 +151,13 @@ bot.on('text', async (ctx, next) => {
         clearInterval(removedItem.interval);
         activeUsers[chatId].splice(index, 1);
 
-        ctx.reply(`🛑 <b>Target [${index + 1}] Permanent Stop Ho Gaya!</b>\nAb iski updates nahi aayengi bhai.`, { parse_mode: 'HTML' });
+        ctx.reply(`🛑 <b>Target [${index + 1}] Permanent Stop Ho Gaya!</b>\nAb list se saaf ho chuka hai aur alerts band hain bhai.`, { parse_mode: 'HTML' });
         return;
     }
     return next();
 });
 
-// --- 🔬 REAL-TIME STOCK SCRAPER ENGINE (15 SEC) ---
+// --- 🔬 HIGH-PRECISION REAL-TIME STOCK SCRAPER ENGINE ---
 async function checkFinancialFluctuations(ctx, chatId, pid, originalUrl) {
     if (!activeUsers[chatId]) return;
     const itemIndex = activeUsers[chatId].findIndex(item => item.id === pid);
@@ -172,18 +166,23 @@ async function checkFinancialFluctuations(ctx, chatId, pid, originalUrl) {
     try {
         const response = await axios.get(originalUrl, {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache'
             },
             timeout: 10000 
         });
 
         const html = response.data;
         
-        // 1. Check Availability Status from HTML structure
-        let isOutOfStock = html.includes('This item is currently out of stock') || 
-                           html.includes('OUT OF STOCK') || 
-                           html.includes('Notify Me');
+        // 🔥 STRIKING RE-DESIGN FOR REAL-TIME AVAILABILITY
+        // Page par asli cart ya order wale button ke keyword check karenge taaki fake alerts ya block na fari ho
+        const hasBuyNow = html.includes('BUY NOW') || html.includes('Buy Now') || html.includes('buy now');
+        const hasAddToCart = html.includes('ADD TO CART') || html.includes('Add to Cart') || html.includes('add to cart');
+        
+        // Final strict check confirmation: Agar koi bhi kharidari ka rasta khula hai
+        const isProductAvailable = hasBuyNow || hasAddToCart;
 
         let currentPrice = "N/A";
         const jsonLdMatch = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/i);
@@ -194,22 +193,21 @@ async function checkFinancialFluctuations(ctx, chatId, pid, originalUrl) {
                 if (itemData && itemData.offers) {
                     let priceVal = Array.isArray(itemData.offers) ? itemData.offers[0].price : itemData.offers.price;
                     if (priceVal) currentPrice = String(priceVal).replace(/[^0-9]/g, '');
-                    
-                    // JSON check backup for stock status
-                    let availability = Array.isArray(itemData.offers) ? itemData.offers[0].availability : itemData.offers.availability;
-                    if (availability && availability.includes('OutOfStock')) {
-                        isOutOfStock = true;
-                    }
                 }
             } catch (e) {}
         }
 
-        // 🔥 LAGAATAAR ALERT IF IN STOCK (REAL-TIME ALL TIME LOOPS)
-        if (!isOutOfStock) {
+        if (currentPrice === "N/A") {
+            let priceMatch = html.match(/"price"\s*:\s*"?([0-9]+)"?/i);
+            if (priceMatch) currentPrice = priceMatch[1];
+        }
+
+        // 🚨 IF IN STOCK -> LOOP ALERT EVERY 15 SECONDS NON-STOP
+        if (isProductAvailable) {
             let priceDisplay = currentPrice !== "N/A" ? `₹${currentPrice}` : "N/A";
             
             await bot.telegram.sendMessage(chatId, 
-                `🔥 <b>Oo bhaiiii jaldi jaa STOCK MEIN AA GYA HAI!</b> 🔥\n\n💰 Live Price: <b>${priceDisplay}</b>\n\nLink par click karo aur order maaro:\n${originalUrl}`,
+                `🔥 <b>Oo bhaiiii jaldi jaa STOCK MEIN AA GYA HAI!</b> 🔥\n\n💰 Live Price: <b>${priceDisplay}</b>\n\nLink par click karo aur loot lo:\n${originalUrl}`,
                 { parse_mode: 'HTML' }
             ).catch(() => {});
         }
