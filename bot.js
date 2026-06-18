@@ -1,3 +1,4 @@
+
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const cheerio = require('cheerio');
@@ -7,50 +8,32 @@ const express = require('express');
 const TOKEN   = process.env.BOT_TOKEN  || '8901855590:AAHFlMQ_LNzOrJ0noP8BPQgnkSAZ2mRo2uc';
 const ADMIN   = parseInt(process.env.ADMIN_ID || '7485181331', 10);
 const PORT    = parseInt(process.env.PORT     || '10000',      10);
-const APP_URL = 'https://fk-stock-final.onrender.com'; // 🔥 Fixed Render Webhook Path
+const APP_URL = process.env.RENDER_EXTERNAL_URL || '';
 const MAX_TRACKS = 5;
 const CHECK_INTERVAL = 15000; // 15s
 
 // ─── STATE ─────────────────────────────────────────────────────
-const approvedUsers = new Set([ADMIN]);   
-const pendingUsers  = new Map();          
-const userTracks    = new Map();          
+const approvedUsers = new Set([ADMIN]);   // admin always approved
+const pendingUsers  = new Map();          // chatId -> {username, name}
+const userTracks    = new Map();          // chatId -> [ {url, name, interval} ]
 
-// ─── EXPRESS & WEBHOOK CONNECTION ──────────────────────────────
+// ─── EXPRESS KEEP-ALIVE ────────────────────────────────────────
 const app = express();
-app.use(express.json());
-
-const bot = new TelegramBot(TOKEN);
-
-// Webhook handling endpoint
-app.post("/secret-telegram-webhook", (req, res) => {
-  bot.processUpdate(req.body);
-  res.sendStatus(200);
-});
-
 app.get('/', (_req, res) => res.send('Flipkart Tracker Bot is running!'));
+app.listen(PORT, () => console.log(`Server on port ${PORT}`));
 
-app.listen(PORT, '0.0.0.0', async () => {
-  console.log(`Server on port ${PORT}`);
-  try {
-    await bot.deleteWebHook({ drop_pending_updates: true });
-    await bot.setWebHook(`${APP_URL}/secret-telegram-webhook`, {
-      drop_pending_updates: true
-    });
-    console.log("🎯 Webhook successfully registered on Render!");
-  } catch (err) {
-    console.log("⚠️ Webhook setting log: ", err.message);
-  }
-});
+if (APP_URL) {
+  setInterval(() => {
+    axios.get(APP_URL).catch(() => {});
+  }, 25000);
+}
 
-// Keep alive loop
-setInterval(() => {
-  axios.get(APP_URL).catch(() => {});
-}, 15000);
+// ─── BOT ───────────────────────────────────────────────────────
+const bot = new TelegramBot(TOKEN, { polling: true });
 
 // Safely send HTML message
 function sendHTML(chatId, text) {
-  return bot.sendMessage(chatId, text, { parse_mode: 'HTML', disable_web_page_preview: true }).catch(err => {
+  return bot.sendMessage(chatId, text, { parse_mode: 'HTML' }).catch(err => {
     console.error('sendMessage error:', err.message);
   });
 }
@@ -72,7 +55,6 @@ async function checkFlipkart(url) {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         'Accept-Language': 'en-IN,en;q=0.9',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Cookie': 'pincode=125121; sn=125121; amsn=125121;' // Hardlocked localized request layout
       },
     });
 
@@ -133,6 +115,7 @@ function startTracking(chatId, url) {
 
   const trackObj = { url, name: '...', intervalId: null };
   tracks.push(trackObj);
+  const idx = tracks.length - 1;
 
   sendHTML(chatId, `🔍 Tracking shuru: <code>${esc(url)}</code>\n15 seconds mein pehla check hoga...`);
 
@@ -141,17 +124,16 @@ function startTracking(chatId, url) {
     trackObj.name = result.productName;
 
     if (result.inStock) {
-      // 🔥 FIXED: Wrapped URL with esc() inside href attribute to eliminate the 400 Bad Request error
       await sendHTML(chatId,
         `✅ <b>IN STOCK!</b>\n\n` +
         `📦 <b>${esc(result.productName)}</b>\n` +
         (result.extra ? `💾 ${esc(result.extra)}\n` : '') +
-        `🔗 <a href="${esc(url)}">Flipkart Pe Dekho</a>`
+        `🔗 <a href="${url}">Flipkart Pe Dekho</a>`
       );
     }
   };
 
-  run(); 
+  run(); // immediate first check
   trackObj.intervalId = setInterval(run, CHECK_INTERVAL);
 }
 
@@ -257,16 +239,6 @@ bot.on('message', async (msg) => {
     return bot.sendMessage(chatId, 'Main menu:', mainMenuKeyboard());
   }
 
-  // Handle manual slash stop format as well (/stop1)
-  if (text.toLowerCase().startsWith('/stop')) {
-    const numStr = text.toLowerCase().replace('/stop', '').trim();
-    const idx = parseInt(numStr, 10) - 1;
-    const ok  = stopTrack(chatId, idx);
-    if (ok) {
-      return sendHTML(chatId, `🛑 Track ${idx + 1} stop kar diya!`);
-    }
-  }
-
   // ── Stop track by button ──
   const stopMatch = text.match(/^Stop (\d+):/);
   if (stopMatch) {
@@ -280,9 +252,12 @@ bot.on('message', async (msg) => {
   }
 
   // ── URL tracking ──
-  if (text.includes('flipkart.com') || text.includes('fkrt.it')) {
+  if (text.includes('flipkart.com') || text.includes('dl.flipkart.com')) {
     return startTracking(chatId, text);
   }
+
+  // ── Unknown ──
+  sendHTML(chatId, '❓ Koi Flipkart link bhejo ya menu se option choose karo.');
 });
 
 // ─── CALLBACK QUERY (Admin approve/reject) ────────────────────
@@ -309,9 +284,13 @@ bot.on('callback_query', (query) => {
     const userId = parseInt(data.split('_')[1], 10);
     pendingUsers.delete(userId);
     sendHTML(userId, '❌ Aapka access request reject ho gaya.');
-    bot.editMessageReplyMarkup({ inline_keyboard: [] }, {
-      chat_id: ADMIN, message_id: query.message.message_id,
-    }).catch(() => {});
     sendHTML(ADMIN, `❌ User ${userId} rejected.`);
   }
 });
+
+// ─── POLLING ERRORS ───────────────────────────────────────────
+bot.on('polling_error', (err) => {
+  console.error('Polling error:', err.message);
+});
+
+console.log('🛒 Flipkart Stock Tracker Bot running!');
