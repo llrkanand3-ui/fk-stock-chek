@@ -1,61 +1,44 @@
+
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const cheerio = require('cheerio');
 const express = require('express');
 
-// --- 🔒 CONFIGURATION HARDLOCKED ---
-const TOKEN   = '8901855590:AAHFlMQ_LNzOrJ0noP8BPQgnkSAZ2mRo2uc';
-const ADMIN   = 7485181331;
-const PORT    = parseInt(process.env.PORT || '10000', 10);
-const RENDER_URL = 'https://fk-stock-final.onrender.com'; // 🔥 Fixed Render Webhook Base
+// ─── CONFIG ────────────────────────────────────────────────────
+const TOKEN   = process.env.BOT_TOKEN  || '8901855590:AAHFlMQ_LNzOrJ0noP8BPQgnkSAZ2mRo2uc';
+const ADMIN   = parseInt(process.env.ADMIN_ID || '7485181331', 10);
+const PORT    = parseInt(process.env.PORT     || '10000',      10);
+const APP_URL = process.env.RENDER_EXTERNAL_URL || '';
 const MAX_TRACKS = 5;
 const CHECK_INTERVAL = 15000; // 15s
 
 // ─── STATE ─────────────────────────────────────────────────────
-const approvedUsers = new Set([ADMIN]);   
-const pendingUsers  = new Map();          
-const userTracks    = new Map();          
+const approvedUsers = new Set([ADMIN]);   // admin always approved
+const pendingUsers  = new Map();          // chatId -> {username, name}
+const userTracks    = new Map();          // chatId -> [ {url, name, interval} ]
 
-// ─── EXPRESS SERVER & WEBHOOK INTEGRATION ──────────────────────
+// ─── EXPRESS KEEP-ALIVE ────────────────────────────────────────
 const app = express();
-app.use(express.json());
+app.get('/', (_req, res) => res.send('Flipkart Tracker Bot is running!'));
+app.listen(PORT, () => console.log(`Server on port ${PORT}`));
 
-const bot = new TelegramBot(TOKEN);
+if (APP_URL) {
+  setInterval(() => {
+    axios.get(APP_URL).catch(() => {});
+  }, 25000);
+}
 
-// Webhook route for Telegram
-app.post("/secret-telegram-webhook", (req, res) => {
-  bot.processUpdate(req.body);
-  res.sendStatus(200);
-});
-
-app.get('/', (_req, res) => res.send('Flipkart Tracker Bot is running perfectly!'));
-
-app.listen(PORT, '0.0.0.0', async () => {
-  console.log(`Server listening on port ${PORT}`);
-  try {
-    await bot.deleteWebHook({ drop_pending_updates: true });
-    await bot.setWebHook(`${RENDER_URL}/secret-telegram-webhook`, {
-      drop_pending_updates: true
-    });
-    console.log("🎯 Webhook successfully bound to Render URL!");
-  } catch (err) {
-    console.log("⚠️ Webhook setup warning: ", err.message);
-  }
-});
-
-// Self-ping to keep render hot
-setInterval(() => {
-  axios.get(RENDER_URL).catch(() => {});
-}, 15000);
+// ─── BOT ───────────────────────────────────────────────────────
+const bot = new TelegramBot(TOKEN, { polling: true });
 
 // Safely send HTML message
 function sendHTML(chatId, text) {
-  return bot.sendMessage(chatId, text, { parse_mode: 'HTML', disable_web_page_preview: true }).catch(err => {
+  return bot.sendMessage(chatId, text, { parse_mode: 'HTML' }).catch(err => {
     console.error('sendMessage error:', err.message);
   });
 }
 
-// Escape HTML special chars (Crucial for URL & Special String Safety)
+// Escape HTML special chars
 function esc(str) {
   return String(str)
     .replace(/&/g, '&amp;')
@@ -67,58 +50,38 @@ function esc(str) {
 async function checkFlipkart(url) {
   try {
     const { data } = await axios.get(url, {
-      timeout: 12000,
+      timeout: 15000,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
-        'Accept-Language': 'en-US,en;q=0.9',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-IN,en;q=0.9',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Cookie': 'pincode=125121; sn=125121; amsn=125121;' // Locked Barwala
       },
     });
 
-    const htmlSource = data.toString();
-    const htmlLower = htmlSource.toLowerCase();
-    const $ = cheerio.load(htmlSource);
+    const $ = cheerio.load(data);
 
-    // Dynamic Title Filter: Only Model + Storage
-    let productName = "Flipkart Product Layout";
-    let rawTitle = $('title').text().split('|')[0].trim();
-    if (rawTitle) {
-        let cleanMatch = rawTitle.match(/^([^\(]+)\(([^)]+)\)/i);
-        if (cleanMatch) {
-            productName = `${cleanMatch[1].trim()} (${cleanMatch[2].trim()})`;
-        } else {
-            productName = rawTitle;
-        }
-    }
+    // Product name
+    let productName = $('span.VU-ZEz').first().text().trim()
+      || $('h1._6EBuvT span').first().text().trim()
+      || $('h1.yhB1nd').first().text().trim()
+      || $('title').text().replace('- Buy', '').trim()
+      || 'Product';
 
-    let isInStock = false;
+    // Extra info (storage/RAM)
+    let extra = '';
+    $('div._8Cs33M a, ul._RH_-d li').each((_, el) => {
+      const t = $(el).text().trim();
+      if (t) extra += ' ' + t;
+    });
 
-    // Strategy 1: JSON Schema
-    const jsonLdMatch = htmlSource.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/i);
-    if (jsonLdMatch && jsonLdMatch[1]) {
-        try {
-            const jsonData = JSON.parse(jsonLdMatch[1].trim());
-            const itemData = Array.isArray(jsonData) ? jsonData.find(i => i.offers) : jsonData;
-            if (itemData && itemData.offers) {
-                let availability = String(itemData.offers.availability || itemData.offers[0]?.availability || '');
-                if (availability.toLowerCase().includes('instock')) isInStock = true;
-            }
-        } catch(e){}
-    }
+    // In-stock check — look for "Buy Now"
+    const bodyText = $.root().text();
+    const inStock  = /buy\s*now/i.test(bodyText);
 
-    // Strategy 2: Button Elements
-    if (!isInStock) {
-        const hasBuyButtons = htmlLower.includes('buy now') || htmlLower.includes('add to cart') || htmlLower.includes('go to cart');
-        const isOutOfStockText = htmlLower.includes('currently unavailable') || htmlLower.includes('out of stock');
-        if (hasBuyButtons && !isOutOfStockText) {
-            isInStock = true;
-        }
-    }
-
-    return { inStock: isInStock, productName: productName.trim() };
+    return { inStock, productName: productName.slice(0, 80), extra: extra.slice(0, 60) };
   } catch (err) {
-    return { inStock: false, productName: 'Unknown Product' };
+    console.error('checkFlipkart error:', err.message);
+    return { inStock: false, productName: 'Unknown', extra: '', error: err.message };
   }
 }
 
@@ -141,7 +104,7 @@ function startTracking(chatId, url) {
 
   // Duplicate check
   if (tracks.some(t => t.url === url)) {
-    sendHTML(chatId, '⚠️ **bhai ye link already track hora hai!** New link ke liye click karein.');
+    sendHTML(chatId, '⚠️ Yeh link pehle se track ho raha hai!');
     return;
   }
 
@@ -150,36 +113,27 @@ function startTracking(chatId, url) {
     return;
   }
 
-  const trackObj = { url, name: 'Fetching Details...', intervalId: null };
+  const trackObj = { url, name: '...', intervalId: null };
   tracks.push(trackObj);
+  const idx = tracks.length - 1;
+
+  sendHTML(chatId, `🔍 Tracking shuru: <code>${esc(url)}</code>\n15 seconds mein pehla check hoga...`);
 
   const run = async () => {
-    // Dynamic recalculation of positional serial numbers
-    const tracksArr = getTracks(chatId);
-    const currentIdx = tracksArr.findIndex(t => t.url === url);
-    if (currentIdx === -1) return; // Stopped manually
-
     const result = await checkFlipkart(url);
     trackObj.name = result.productName;
 
     if (result.inStock) {
-      const realTimeSerial = currentIdx + 1;
       await sendHTML(chatId,
-        `🚨 **bhai stock aagya hai** 🚨\n\n` +
-        `📦 **Product:** <b>${esc(result.productName)}</b>\n\n` +
-        `🔗 **Order Link:**\n<a href="${esc(url)}">Flipkart Pe Dekho</a>\n\n` +
-        `🛑 **Stop Tracking:** /stop${realTimeSerial}`
+        `✅ <b>IN STOCK!</b>\n\n` +
+        `📦 <b>${esc(result.productName)}</b>\n` +
+        (result.extra ? `💾 ${esc(result.extra)}\n` : '') +
+        `🔗 <a href="${url}">Flipkart Pe Dekho</a>`
       );
     }
   };
 
-  // Sleek Single Confirmation Output on Startup
-  checkFlipkart(url).then((initialMeta) => {
-    trackObj.name = initialMeta.productName;
-    sendHTML(chatId, `🕵️‍♂️ **Undercover Agent Radar Par Lock!**\n\n📦 **Model:** <code>${esc(initialMeta.productName)}</code>\n\n15 second mein strict check locked hai boss!`);
-  });
-
-  run(); 
+  run(); // immediate first check
   trackObj.intervalId = setInterval(run, CHECK_INTERVAL);
 }
 
@@ -199,20 +153,21 @@ function mainMenuKeyboard() {
 function stopKeyboard(chatId) {
   const tracks = getTracks(chatId);
   if (tracks.length === 0) return null;
-  const buttons = tracks.map((t, i) => [{ text: `Stop ${i + 1}: ${t.name.slice(0, 25)}` }]);
+  const buttons = tracks.map((t, i) => [{ text: `Stop ${i + 1}: ${t.name.slice(0, 30)}` }]);
   buttons.push([{ text: '🔙 Back' }]);
   return { reply_markup: { keyboard: buttons, resize_keyboard: true } };
 }
 
+// ─── ADMIN HELPERS ────────────────────────────────────────────
 function notifyAdmin(chatId, username, name) {
   const kb = {
     inline_keyboard: [[
-      { text: 'Approve ✅', callback_data: `approve_${chatId}` },
-      { text: 'Decline ❌',  callback_data: `reject_${chatId}`  },
+      { text: '✅ Approve', callback_data: `approve_${chatId}` },
+      { text: '❌ Reject',  callback_data: `reject_${chatId}`  },
     ]],
   };
   bot.sendMessage(ADMIN,
-    `🚨 **New Stock Bot Request!**\n\n👤 Name: ${esc(name)}\n🆔 ID: \`${chatId}\`\n📛 @${esc(username || 'N/A')}`,
+    `🔔 New user request:\n👤 ${esc(name)}\n🆔 ${chatId}\n@${esc(username || 'no_username')}`,
     { parse_mode: 'HTML', reply_markup: kb }
   ).catch(() => {});
 }
@@ -222,6 +177,7 @@ bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text   = (msg.text || '').trim();
 
+  // ── Admin commands ──
   if (chatId === ADMIN) {
     if (text === '/users') {
       const lines = [`<b>Approved users (${approvedUsers.size}):</b>`];
@@ -242,39 +198,40 @@ bot.on('message', async (msg) => {
   // ── Access check ──
   if (!approvedUsers.has(chatId)) {
     if (pendingUsers.has(chatId)) {
-      return sendHTML(chatId, '🔒 **Access Denied!**\n\nAap abhi approved nahi hain. Admin ko request bhej di gayi hai.');
+      return sendHTML(chatId, '⏳ Aapki request pending hai. Admin approve karega.');
     }
     const name     = `${msg.from.first_name || ''} ${msg.from.last_name || ''}`.trim();
     const username = msg.from.username || '';
     pendingUsers.set(chatId, { name, username });
     notifyAdmin(chatId, username, name);
-    return sendHTML(chatId, '🔒 **Access Denied!**\n\nAap abhi approved nahi hain. Admin ko automatic request bhej di gayi hai.');
+    return sendHTML(chatId, '👋 Access request bhej di! Admin approve karega.');
   }
 
   // ── /start ──
   if (text === '/start') {
     return bot.sendMessage(chatId,
-      '🤖 *Welcome to New Flipkart Stock Master Pro!*',
+      '🛒 <b>Flipkart Stock Tracker</b>\n\nKoi bhi Flipkart link paste karo — main track karunga aur jab "Buy Now" aaye toh alert karunga!',
       { parse_mode: 'HTML', ...mainMenuKeyboard() }
     );
   }
 
+  // ── Menu buttons ──
   if (text === '➕ Track New Link') {
-    return sendHTML(chatId, 'bhai link behej jb bhi new link track krna hoto start track dbana ho');
+    return sendHTML(chatId, '🔗 Flipkart product ka URL paste karo:');
   }
 
   if (text === '📋 List Active Tracks') {
     const tracks = getTracks(chatId);
-    if (tracks.length === 0) return sendHTML(chatId, '😴 Koyi active target stock radar par nahi hai.');
+    if (tracks.length === 0) return sendHTML(chatId, '📭 Koi active track nahi hai.');
     const lines = tracks.map((t, i) =>
-      `🔢 <b>Target [${i + 1}]</b>\n📦 <b>Model:</b> <code>${esc(t.name)}</code>\n🔗 <b>Link:</b> <code>${esc(t.url)}</code>\n🛑 <b>Stop Command:</b> /stop${i + 1}`
+      `${i + 1}. <b>${esc(t.name)}</b>\n   <code>${esc(t.url)}</code>`
     );
-    return sendHTML(chatId, `📋 <b>Radar Par Active Stock Targets Matrix:</b>\n\n` + lines.join('\n\n'));
+    return sendHTML(chatId, `<b>Active Tracks (${tracks.length}/${MAX_TRACKS}):</b>\n\n` + lines.join('\n\n'));
   }
 
   if (text === '🛑 Stop a Track') {
     const kb = stopKeyboard(chatId);
-    if (!kb) return sendHTML(chatId, '😴 Koyi active target stock radar par nahi hai.');
+    if (!kb) return sendHTML(chatId, '📭 Koi active track nahi.');
     return bot.sendMessage(chatId, 'Kaunsa track stop karna hai?', kb);
   }
 
@@ -282,58 +239,6 @@ bot.on('message', async (msg) => {
     return bot.sendMessage(chatId, 'Main menu:', mainMenuKeyboard());
   }
 
-  // Handle standard slash command stop format (/stop1, /stop2)
-  if (text.toLowerCase().startsWith('/stop')) {
-    const numStr = text.toLowerCase().replace('/stop', '').trim();
-    const idx = parseInt(numStr, 10) - 1;
-    const ok  = stopTrack(chatId, idx);
-    if (ok) {
-      return sendHTML(chatId, `🛑 <b>Target [${idx + 1}] radar se permanent saaf!</b>`);
-    }
-    return sendHTML(chatId, '⚠️ **Galat Target Number!**');
-  }
-
-  // Stop track by text button
+  // ── Stop track by button ──
   const stopMatch = text.match(/^Stop (\d+):/);
   if (stopMatch) {
-    const idx = parseInt(stopMatch[1], 10) - 1;
-    const ok  = stopTrack(chatId, idx);
-    if (ok) {
-      const kb = stopKeyboard(chatId);
-      return bot.sendMessage(chatId, `🛑 <b>Target [${idx + 1}] radar se permanent saaf!</b>`, kb || mainMenuKeyboard());
-    }
-    return sendHTML(chatId, '❌ Invalid selection.');
-  }
-
-  // ── URL tracking ──
-  if (text.includes('flipkart.com') || text.includes('fkrt.it')) {
-    return startTracking(chatId, text);
-  }
-});
-
-// ─── CALLBACK QUERY ───────────────────────────────────────────
-bot.on('callback_query', (query) => {
-  const data   = query.data || '';
-  const fromId = query.from.id;
-
-  bot.answerCallbackQuery(query.id).catch(() => {});
-  if (fromId !== ADMIN) return;
-
-  if (data.startsWith('approve_')) {
-    const userId = parseInt(data.split('_')[1], 10);
-    approvedUsers.add(userId);
-    pendingUsers.delete(userId);
-    sendHTML(userId, '🥳 **Aapka access approve ho gaya hai!**\nCommands use karne ke liye ek baar /start dabayein.');
-    bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: ADMIN, message_id: query.message.message_id }).catch(() => {});
-    sendHTML(ADMIN, `✅ User ${userId} approved.`);
-  }
-
-  if (data.startsWith('reject_')) {
-    const userId = parseInt(data.split('_')[1], 10);
-    pendingUsers.delete(userId);
-    bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: ADMIN, message_id: query.message.message_id }).catch(() => {});
-    sendHTML(ADMIN, `❌ User ${userId} rejected.`);
-  }
-});
-
-console.log('📋 Master Script Fixed & Ready.');
