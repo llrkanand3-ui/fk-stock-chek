@@ -1,18 +1,17 @@
 {
-  "name": "amazon-stock-tracker-bot",
+  "name": "flipkart-stock-tracker",
   "version": "1.0.0",
-  "description": "Amazon Stock Tracker Telegram Bot",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js"
   },
   "dependencies": {
-    "node-telegram-bot-api": "^0.64.0",
-    "axios": "^1.6.0",
-    "cheerio": "^1.0.0-rc.12",
-    "express": "^4.18.2"
+    "node-telegram-bot-api": "0.64.0",
+    "axios": "1.6.8",
+    "cheerio": "1.0.0",
+    "express": "4.18.3"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": "20.x"
   }
 }
