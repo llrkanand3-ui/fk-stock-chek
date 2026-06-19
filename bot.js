@@ -7,9 +7,9 @@ const express = require('express');
 const TOKEN    = process.env.BOT_TOKEN  || '8901855590:AAGGeCWXY3bxyHhcO89p0oXqQHrmT6iuAlI';
 const ADMIN    = parseInt(process.env.ADMIN_ID || '7485181331', 10);
 const PORT     = parseInt(process.env.PORT     || '10000',      10);
-const APP_URL = process.env.RENDER_EXTERNAL_URL || '';
+const APP_URL  = process.env.RENDER_EXTERNAL_URL || '';
 const MAX_TRACKS = 20; 
-const CHECK_INTERVAL = 15000; // 15s mein real check hoga
+const CHECK_INTERVAL = 15000; // 15s
 
 // ─── STATE ─────────────────────────────────────────────────────
 const approvedUsers = new Set([ADMIN]);   
@@ -49,33 +49,43 @@ async function checkFlipkart(url) {
     const { data } = await axios.get(url, {
       timeout: 12000,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/' + Math.floor(Math.random() * (126 - 120) + 120) + '.0.0.0 Safari/537.36',
         'Accept-Language': 'en-IN,en;q=0.9',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache'
       },
     });
 
     const $ = cheerio.load(data);
 
-    let productName = $('span.VU-ZEz').first().text().trim()
+    // Bulletproof name selection
+    let productName = $('h1').text().trim()
+      || $('span.VU-ZEz').first().text().trim()
       || $('h1._6EBuvT span').first().text().trim()
       || $('h1.yhB1nd').first().text().trim()
-      || $('title').text().replace('- Buy', '').trim()
-      || 'Product';
+      || $('span.B_NuCI').first().text().trim()
+      || $('title').text().replace('- Buy', '').replace(': Buy Online at Low Prices in India | Flipkart.com', '').trim()
+      || 'Flipkart Product';
 
     let extra = '';
-    $('div._8Cs33M a, ul._RH_-d li').each((_, el) => {
+    $('div._8Cs33M a, ul._RH_-d li, div._21Ahn-').each((_, el) => {
       const t = $(el).text().trim();
-      if (t) extra += ' ' + t;
+      if (t && extra.length < 60) extra += ' ' + t;
     });
 
     const bodyText = $.root().text();
-    const inStock  = /buy\s*now/i.test(bodyText);
+    
+    // Live stock condition
+    const hasBuyNow = /buy\s*now/i.test(bodyText) || /add\s*to\s*cart/i.test(bodyText);
+    const isOutOfStock = /out\s*of\s*stock/i.test(bodyText) || /sold\s*out/i.test(bodyText);
+    
+    const inStock = hasBuyNow && !isOutOfStock;
 
     return { inStock, productName: productName.slice(0, 80), extra: extra.slice(0, 60) };
   } catch (err) {
     console.error('checkFlipkart error:', err.message);
-    return { inStock: false, productName: 'Unknown', extra: '', error: err.message };
+    return { inStock: false, productName: 'Fetch Failed (Retrying...)', extra: '', error: err.message };
   }
 }
 
@@ -116,27 +126,29 @@ function startTracking(chatId, url) {
 
   const run = async () => {
     const currentTracks = getTracks(chatId);
-    // Track stop ho gaya ho toh loop tod do
     if (!currentTracks.includes(trackObj)) {
       if (trackObj.intervalId) clearInterval(trackObj.intervalId);
       return;
     }
 
-    // Har 15 sec mein REAL flipkart live check
     const result = await checkFlipkart(url);
-    trackObj.name = result.productName;
+    
+    if (result.productName && result.productName !== 'Fetch Failed (Retrying...)') {
+      trackObj.name = result.productName;
+    } else if (trackObj.name === '📋 Fetching Name...') {
+      trackObj.name = 'Flipkart Product';
+    }
 
     if (!currentTracks.includes(trackObj)) {
       if (trackObj.intervalId) clearInterval(trackObj.intervalId);
       return;
     }
 
-    // CRITICAL LOGIC: Agar stock hai, toh bina ruke alert bhejta rahega har 15s mein
     if (result.inStock) {
       const currentIdx = currentTracks.indexOf(trackObj) + 1;
       await sendHTML(chatId,
         `🔥 <b>LIVE IN STOCK! (Stop ${currentIdx})</b>\n\n` +
-        `📦 <b>${esc(result.productName)}</b>\n` +
+        `📦 <b>${esc(trackObj.name)}</b>\n` +
         (result.extra ? `💾 ${esc(result.extra)}\n` : '') +
         `🚨 <i>Yeh message har 15s mein tab tak aayega jab tak stock khatam nahi hota ya aap stop nahi karte!</i>\n\n` +
         `🔗 <a href="${url}">Flipkart Pe Dekho</a>`
@@ -257,8 +269,14 @@ bot.on('message', async (msg) => {
     return sendHTML(chatId, '❌ Invalid selection.');
   }
 
+  // ── CRITICAL FIX: EXTRACT LINK FROM TEXT (App Share Fix) ──
   if (text.includes('flipkart.com') || text.includes('dl.flipkart.com')) {
-    return startTracking(chatId, text);
+    // Regex matches the actual URL starting from http/https up to the space or end of string
+    const urlMatch = text.match(/https?:\/\/[^\s]+/);
+    if (urlMatch) {
+      const cleanUrl = urlMatch[0];
+      return startTracking(chatId, cleanUrl);
+    }
   }
 
   sendHTML(chatId, '❓ Koi Flipkart link bhejo ya menu se option choose karo.');
