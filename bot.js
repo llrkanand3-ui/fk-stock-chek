@@ -1,20 +1,21 @@
+
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const cheerio = require('cheerio');
 const express = require('express');
 
 // ─── CONFIG ────────────────────────────────────────────────────
-const TOKEN    = process.env.BOT_TOKEN  || '8901855590:AAGGeCWXY3bxyHhcO89p0oXqQHrmT6iuAlI';
-const ADMIN    = parseInt(process.env.ADMIN_ID || '7485181331', 10);
-const PORT     = parseInt(process.env.PORT     || '10000',      10);
-const APP_URL  = process.env.RENDER_EXTERNAL_URL || '';
-const MAX_TRACKS = 20; 
-const CHECK_INTERVAL = 15000; // 15s base loop
+const TOKEN   = process.env.BOT_TOKEN  || '8901855590:AAGGeCWXY3bxyHhcO89p0oXqQHrmT6iuAlI';
+const ADMIN   = parseInt(process.env.ADMIN_ID || '7485181331', 10);
+const PORT    = parseInt(process.env.PORT     || '10000',      10);
+const APP_URL = process.env.RENDER_EXTERNAL_URL || '';
+const MAX_TRACKS = 5;
+const CHECK_INTERVAL = 15000; // 15s
 
 // ─── STATE ─────────────────────────────────────────────────────
-const approvedUsers = new Set([ADMIN]);   
-const pendingUsers  = new Map();          
-const userTracks    = new Map();          
+const approvedUsers = new Set([ADMIN]);   // admin always approved
+const pendingUsers  = new Map();          // chatId -> {username, name}
+const userTracks    = new Map();          // chatId -> [ {url, name, interval} ]
 
 // ─── EXPRESS KEEP-ALIVE ────────────────────────────────────────
 const app = express();
@@ -30,12 +31,14 @@ if (APP_URL) {
 // ─── BOT ───────────────────────────────────────────────────────
 const bot = new TelegramBot(TOKEN, { polling: true });
 
+// Safely send HTML message
 function sendHTML(chatId, text) {
   return bot.sendMessage(chatId, text, { parse_mode: 'HTML' }).catch(err => {
     console.error('sendMessage error:', err.message);
   });
 }
 
+// Escape HTML special chars
 function esc(str) {
   return String(str)
     .replace(/&/g, '&amp;')
@@ -43,78 +46,42 @@ function esc(str) {
     .replace(/>/g, '&gt;');
 }
 
-// Helper for delay
-const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-// ─── ADVANCED AXIOS FETCH WITH AUTO-RETRY (FIXES SINGLE ALERT BUG) ───
-async function fetchWithRetry(url, retries = 3) {
-  for (let i = 0; i < retries; i++) {
-    try {
-      const chromeVersion = Math.floor(Math.random() * (126 - 120) + 120);
-      const response = await axios.get(url, {
-        timeout: 8000,
-        headers: {
-          'User-Agent': `Mozilla/5.0 (Linux; Android ${Math.floor(Math.random() * (14 - 10) + 10)}; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeVersion}.0.0.0 Mobile Safari/537.36`,
-          'Accept-Language': 'en-IN,en-GB;q=0.9,en;q=0.8,hi;q=0.7',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-          'Sec-Ch-Ua': `"Not/A)Brand";v="8", "Chromium";v="${chromeVersion}", "Google Chrome";v="${chromeVersion}"`,
-          'Sec-Ch-Ua-Mobile': '?1',
-          'Sec-Ch-Ua-Platform': '"Android"',
-          'Sec-Fetch-Dest': 'document',
-          'Sec-Fetch-Mode': 'navigate',
-          'Sec-Fetch-Site': 'none',
-          'Sec-Fetch-User': '?1',
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache',
-          'Connection': 'keep-alive',
-          // Random token emulation to bypass target locks
-          'Cookie': `sn=${Math.random().toString(36).substring(2, 10)};` 
-        },
-      });
-      if (response.data) return response.data;
-    } catch (err) {
-      if (i === retries - 1) throw err; // Agar aakhri retry bhi fail ho jaye toh error throw karo
-      await delay(1500); // Fail hone par 1.5s ruko fir try karo
-    }
-  }
-}
-
-// ─── FLIPKART STOCK CHECK ENGINE ───────────────────────────────
+// ─── FLIPKART STOCK CHECK ──────────────────────────────────────
 async function checkFlipkart(url) {
   try {
-    // Dynamic micro-delay to prevent batch blocking
-    await delay(Math.floor(Math.random() * 2000));
-    
-    const htmlData = await fetchWithRetry(url);
-    const $ = cheerio.load(htmlData);
-
-    // Dynamic product name picking
-    let productName = $('h1').text().trim()
-      || $('span.VU-ZEz').first().text().trim()
-      || $('h1._6EBuvT span').first().text().trim()
-      || $('h1.yhB1nd').first().text().trim()
-      || $('span.B_NuCI').first().text().trim()
-      || $('title').text().replace('- Buy', '').replace(': Buy Online at Low Prices in India | Flipkart.com', '').trim()
-      || 'Flipkart Product';
-
-    let extra = '';
-    $('div._8Cs33M a, ul._RH_-d li, div._21Ahn-').each((_, el) => {
-      const t = $(el).text().trim();
-      if (t && extra.length < 60) extra += ' ' + t;
+    const { data } = await axios.get(url, {
+      timeout: 15000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-IN,en;q=0.9',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      },
     });
 
-    const bodyText = $.root().text();
-    
-    // Highly accurate stock parsing
-    const hasBuyNow = /buy\s*now/i.test(bodyText) || /add\s*to\s*cart/i.test(bodyText);
-    const isOutOfStock = /out\s*of\s*stock/i.test(bodyText) || /sold\s*out/i.test(bodyText) || /coming\s*soon/i.test(bodyText);
-    
-    const inStock = hasBuyNow && !isOutOfStock;
+    const $ = cheerio.load(data);
 
-    return { inStock, productName: productName.slice(0, 80), extra: extra.slice(0, 60), error: false };
+    // Product name
+    let productName = $('span.VU-ZEz').first().text().trim()
+      || $('h1._6EBuvT span').first().text().trim()
+      || $('h1.yhB1nd').first().text().trim()
+      || $('title').text().replace('- Buy', '').trim()
+      || 'Product';
+
+    // Extra info (storage/RAM)
+    let extra = '';
+    $('div._8Cs33M a, ul._RH_-d li').each((_, el) => {
+      const t = $(el).text().trim();
+      if (t) extra += ' ' + t;
+    });
+
+    // In-stock check — look for "Buy Now"
+    const bodyText = $.root().text();
+    const inStock  = /buy\s*now/i.test(bodyText);
+
+    return { inStock, productName: productName.slice(0, 80), extra: extra.slice(0, 60) };
   } catch (err) {
-    console.error(`Scraper completely blocked or timed out for link:`, err.message);
-    return { inStock: false, productName: null, extra: '', error: true };
+    console.error('checkFlipkart error:', err.message);
+    return { inStock: false, productName: 'Unknown', extra: '', error: err.message };
   }
 }
 
@@ -127,10 +94,7 @@ function getTracks(chatId) {
 function stopTrack(chatId, index) {
   const tracks = getTracks(chatId);
   if (index < 0 || index >= tracks.length) return false;
-  
-  if (tracks[index].intervalId) {
-    clearInterval(tracks[index].intervalId);
-  }
+  clearInterval(tracks[index].intervalId);
   tracks.splice(index, 1);
   return true;
 }
@@ -138,6 +102,7 @@ function stopTrack(chatId, index) {
 function startTracking(chatId, url) {
   const tracks = getTracks(chatId);
 
+  // Duplicate check
   if (tracks.some(t => t.url === url)) {
     sendHTML(chatId, '⚠️ Yeh link pehle se track ho raha hai!');
     return;
@@ -148,44 +113,27 @@ function startTracking(chatId, url) {
     return;
   }
 
-  const trackObj = { url, name: '📋 Fetching Name...', intervalId: null };
+  const trackObj = { url, name: '...', intervalId: null };
   tracks.push(trackObj);
+  const idx = tracks.length - 1;
 
   sendHTML(chatId, `🔍 Tracking shuru: <code>${esc(url)}</code>\n15 seconds mein pehla check hoga...`);
 
   const run = async () => {
-    const currentTracks = getTracks(chatId);
-    if (!currentTracks.includes(trackObj)) {
-      if (trackObj.intervalId) clearInterval(trackObj.intervalId);
-      return;
-    }
-
     const result = await checkFlipkart(url);
-    
-    if (!result.error && result.productName) {
-      trackObj.name = result.productName;
-    } else if (trackObj.name === '📋 Fetching Name...') {
-      trackObj.name = 'Flipkart Tracked Item';
-    }
-
-    if (!currentTracks.includes(trackObj)) {
-      if (trackObj.intervalId) clearInterval(trackObj.intervalId);
-      return;
-    }
+    trackObj.name = result.productName;
 
     if (result.inStock) {
-      const currentIdx = currentTracks.indexOf(trackObj) + 1;
       await sendHTML(chatId,
-        `🔥 <b>LIVE IN STOCK! (Stop ${currentIdx})</b>\n\n` +
-        `📦 <b>${esc(trackObj.name)}</b>\n` +
+        `✅ <b>IN STOCK!</b>\n\n` +
+        `📦 <b>${esc(result.productName)}</b>\n` +
         (result.extra ? `💾 ${esc(result.extra)}\n` : '') +
-        `🚨 <i>Bina ruke har 15s me alert chalu rahega jab tak stock hai!</i>\n\n` +
         `🔗 <a href="${url}">Flipkart Pe Dekho</a>`
       );
     }
   };
 
-  run(); 
+  run(); // immediate first check
   trackObj.intervalId = setInterval(run, CHECK_INTERVAL);
 }
 
@@ -229,6 +177,7 @@ bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text   = (msg.text || '').trim();
 
+  // ── Admin commands ──
   if (chatId === ADMIN) {
     if (text === '/users') {
       const lines = [`<b>Approved users (${approvedUsers.size}):</b>`];
@@ -246,6 +195,7 @@ bot.on('message', async (msg) => {
     }
   }
 
+  // ── Access check ──
   if (!approvedUsers.has(chatId)) {
     if (pendingUsers.has(chatId)) {
       return sendHTML(chatId, '⏳ Aapki request pending hai. Admin approve karega.');
@@ -257,6 +207,7 @@ bot.on('message', async (msg) => {
     return sendHTML(chatId, '👋 Access request bhej di! Admin approve karega.');
   }
 
+  // ── /start ──
   if (text === '/start') {
     return bot.sendMessage(chatId,
       '🛒 <b>Flipkart Stock Tracker</b>\n\nKoi bhi Flipkart link paste karo — main track karunga aur jab "Buy Now" aaye toh alert karunga!',
@@ -264,11 +215,12 @@ bot.on('message', async (msg) => {
     );
   }
 
-  if (text.includes('Track New Link')) {
+  // ── Menu buttons ──
+  if (text === '➕ Track New Link') {
     return sendHTML(chatId, '🔗 Flipkart product ka URL paste karo:');
   }
 
-  if (text.includes('List Active Tracks')) {
+  if (text === '📋 List Active Tracks') {
     const tracks = getTracks(chatId);
     if (tracks.length === 0) return sendHTML(chatId, '📭 Koi active track nahi hai.');
     const lines = tracks.map((t, i) =>
@@ -277,17 +229,18 @@ bot.on('message', async (msg) => {
     return sendHTML(chatId, `<b>Active Tracks (${tracks.length}/${MAX_TRACKS}):</b>\n\n` + lines.join('\n\n'));
   }
 
-  if (text.includes('Stop a Track')) {
+  if (text === '🛑 Stop a Track') {
     const kb = stopKeyboard(chatId);
     if (!kb) return sendHTML(chatId, '📭 Koi active track nahi.');
     return bot.sendMessage(chatId, 'Kaunsa track stop karna hai?', kb);
   }
 
-  if (text.includes('Back')) {
+  if (text === '🔙 Back') {
     return bot.sendMessage(chatId, 'Main menu:', mainMenuKeyboard());
   }
 
-  const stopMatch = text.match(/Stop (\d+):/);
+  // ── Stop track by button ──
+  const stopMatch = text.match(/^Stop (\d+):/);
   if (stopMatch) {
     const idx = parseInt(stopMatch[1], 10) - 1;
     const ok  = stopTrack(chatId, idx);
@@ -298,18 +251,16 @@ bot.on('message', async (msg) => {
     return sendHTML(chatId, '❌ Invalid selection.');
   }
 
+  // ── URL tracking ──
   if (text.includes('flipkart.com') || text.includes('dl.flipkart.com')) {
-    const urlMatch = text.match(/https?:\/\/[^\s]+/);
-    if (urlMatch) {
-      const cleanUrl = urlMatch[0];
-      return startTracking(chatId, cleanUrl);
-    }
+    return startTracking(chatId, text);
   }
 
+  // ── Unknown ──
   sendHTML(chatId, '❓ Koi Flipkart link bhejo ya menu se option choose karo.');
 });
 
-// ─── CALLBACK QUERY ───────────────────────────────────────────
+// ─── CALLBACK QUERY (Admin approve/reject) ────────────────────
 bot.on('callback_query', (query) => {
   const data   = query.data || '';
   const fromId = query.from.id;
@@ -337,6 +288,7 @@ bot.on('callback_query', (query) => {
   }
 });
 
+// ─── POLLING ERRORS ───────────────────────────────────────────
 bot.on('polling_error', (err) => {
   console.error('Polling error:', err.message);
 });
