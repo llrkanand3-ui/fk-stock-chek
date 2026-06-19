@@ -1,15 +1,15 @@
-
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const cheerio = require('cheerio');
 const express = require('express');
 
 // ─── CONFIG ────────────────────────────────────────────────────
-const TOKEN    = process.env.BOT_TOKEN  || '8901855590:AAHFlMQ_LNzOrJ0noP8BPQgnkSAZ2mRo2uc';
+// NEW SECURE TOKEN APPLIED SUCESSFULLY 👍
+const TOKEN    = process.env.BOT_TOKEN  || '8901855590:AAGGeCWXY3bxyHhcO89p0oXqQHrmT6iuAlI';
 const ADMIN    = parseInt(process.env.ADMIN_ID || '7485181331', 10);
 const PORT     = parseInt(process.env.PORT     || '10000',      10);
 const APP_URL = process.env.RENDER_EXTERNAL_URL || '';
-const MAX_TRACKS = 5;
+const MAX_TRACKS = 20; // Max limit is now 20 tracks!
 const CHECK_INTERVAL = 15000; // 15s
 
 // ─── STATE ─────────────────────────────────────────────────────
@@ -52,7 +52,7 @@ async function checkFlipkart(url) {
     const { data } = await axios.get(url, {
       timeout: 15000,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, healthiest/Gecko) Chrome/124.0.0.0 Safari/537.36',
         'Accept-Language': 'en-IN,en;q=0.9',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       },
@@ -228,7 +228,7 @@ bot.on('message', async (msg) => {
     );
   }
 
-  // ── FIXED BUTTON MATCHING (Using .includes() to avoid exact match errors) ──
+  // ── FIXED BUTTON MATCHING ──
   if (text.includes('Track New Link')) {
     return sendHTML(chatId, '🔗 Flipkart product ka URL paste karo:');
   }
