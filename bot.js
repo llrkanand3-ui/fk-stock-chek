@@ -9,7 +9,7 @@ const TOKEN   = process.env.BOT_TOKEN  || '8901855590:AAGGeCWXY3bxyHhcO89p0oXqQH
 const ADMIN   = parseInt(process.env.ADMIN_ID || '7485181331', 10);
 const PORT    = parseInt(process.env.PORT     || '10000',      10);
 const APP_URL = process.env.RENDER_EXTERNAL_URL || '';
-const MAX_TRACKS = 5;
+const MAX_TRACKS = 20;
 const CHECK_INTERVAL = 15000; // 15s
 
 // ─── STATE ─────────────────────────────────────────────────────
