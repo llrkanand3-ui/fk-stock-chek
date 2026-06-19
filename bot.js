@@ -1,13 +1,12 @@
-
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const cheerio = require('cheerio');
 const express = require('express');
 
 // ─── CONFIG ────────────────────────────────────────────────────
-const TOKEN   = process.env.BOT_TOKEN  || '8901855590:AAHFlMQ_LNzOrJ0noP8BPQgnkSAZ2mRo2uc';
-const ADMIN   = parseInt(process.env.ADMIN_ID || '7485181331', 10);
-const PORT    = parseInt(process.env.PORT     || '10000',      10);
+const TOKEN    = process.env.BOT_TOKEN  || '8901855590:AAHFlMQ_LNzOrJ0noP8BPQgnkSAZ2mRo2uc';
+const ADMIN    = parseInt(process.env.ADMIN_ID || '7485181331', 10);
+const PORT     = parseInt(process.env.PORT     || '10000',      10);
 const APP_URL = process.env.RENDER_EXTERNAL_URL || '';
 const MAX_TRACKS = 5;
 const CHECK_INTERVAL = 15000; // 15s
@@ -15,7 +14,7 @@ const CHECK_INTERVAL = 15000; // 15s
 // ─── STATE ─────────────────────────────────────────────────────
 const approvedUsers = new Set([ADMIN]);   // admin always approved
 const pendingUsers  = new Map();          // chatId -> {username, name}
-const userTracks    = new Map();          // chatId -> [ {url, name, interval} ]
+const userTracks    = new Map();          // chatId -> [ {url, name, intervalId} ]
 
 // ─── EXPRESS KEEP-ALIVE ────────────────────────────────────────
 const app = express();
@@ -94,7 +93,12 @@ function getTracks(chatId) {
 function stopTrack(chatId, index) {
   const tracks = getTracks(chatId);
   if (index < 0 || index >= tracks.length) return false;
-  clearInterval(tracks[index].intervalId);
+  
+  // Pehle background interval ko clear karo takki loop aage na chale
+  if (tracks[index].intervalId) {
+    clearInterval(tracks[index].intervalId);
+  }
+  // Array se remove karo
   tracks.splice(index, 1);
   return true;
 }
@@ -113,19 +117,34 @@ function startTracking(chatId, url) {
     return;
   }
 
-  const trackObj = { url, name: '...', intervalId: null };
+  const trackObj = { url, name: '📋 Fetching Name...', intervalId: null };
   tracks.push(trackObj);
-  const idx = tracks.length - 1;
 
   sendHTML(chatId, `🔍 Tracking shuru: <code>${esc(url)}</code>\n15 seconds mein pehla check hoga...`);
 
   const run = async () => {
+    const currentTracks = getTracks(chatId);
+    // CRITICAL FIX: Agar yeh trackObj ab list mein nahi hai, toh background execution yahin stop kar do
+    if (!currentTracks.includes(trackObj)) {
+      if (trackObj.intervalId) clearInterval(trackObj.intervalId);
+      return;
+    }
+
     const result = await checkFlipkart(url);
     trackObj.name = result.productName;
 
+    // Double check again after fetch to prevent ghost alerts
+    if (!currentTracks.includes(trackObj)) {
+      if (trackObj.intervalId) clearInterval(trackObj.intervalId);
+      return;
+    }
+
     if (result.inStock) {
+      // Find current correct index for dynamic Serial Number (Stop1, Stop2)
+      const currentIdx = currentTracks.indexOf(trackObj) + 1;
+
       await sendHTML(chatId,
-        `✅ <b>IN STOCK!</b>\n\n` +
+        `✅ <b>IN STOCK! (Stop ${currentIdx})</b>\n\n` +
         `📦 <b>${esc(result.productName)}</b>\n` +
         (result.extra ? `💾 ${esc(result.extra)}\n` : '') +
         `🔗 <a href="${url}">Flipkart Pe Dekho</a>`
@@ -133,7 +152,7 @@ function startTracking(chatId, url) {
     }
   };
 
-  run(); // immediate first check
+  run(); // Immediate first check
   trackObj.intervalId = setInterval(run, CHECK_INTERVAL);
 }
 
@@ -153,6 +172,7 @@ function mainMenuKeyboard() {
 function stopKeyboard(chatId) {
   const tracks = getTracks(chatId);
   if (tracks.length === 0) return null;
+  // Dynamic Name aur Serial Number exact dynamic generate hoga
   const buttons = tracks.map((t, i) => [{ text: `Stop ${i + 1}: ${t.name.slice(0, 30)}` }]);
   buttons.push([{ text: '🔙 Back' }]);
   return { reply_markup: { keyboard: buttons, resize_keyboard: true } };
