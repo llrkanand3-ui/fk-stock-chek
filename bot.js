@@ -9,7 +9,7 @@ const ADMIN    = parseInt(process.env.ADMIN_ID || '7485181331', 10);
 const PORT     = parseInt(process.env.PORT     || '10000',      10);
 const APP_URL  = process.env.RENDER_EXTERNAL_URL || '';
 const MAX_TRACKS = 20; 
-const CHECK_INTERVAL = 15000; // Har link parallelly exact 15s me check hogi
+const CHECK_INTERVAL = 15000; // 15s base loop
 
 // ─── STATE ─────────────────────────────────────────────────────
 const approvedUsers = new Set([ADMIN]);   
@@ -43,31 +43,52 @@ function esc(str) {
     .replace(/>/g, '&gt;');
 }
 
-// ─── ANTI-BLOCK FLIPKART PARALLEL SCRAPER ──────────────────────
+// Helper for delay
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// ─── ADVANCED AXIOS FETCH WITH AUTO-RETRY (FIXES SINGLE ALERT BUG) ───
+async function fetchWithRetry(url, retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const chromeVersion = Math.floor(Math.random() * (126 - 120) + 120);
+      const response = await axios.get(url, {
+        timeout: 8000,
+        headers: {
+          'User-Agent': `Mozilla/5.0 (Linux; Android ${Math.floor(Math.random() * (14 - 10) + 10)}; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeVersion}.0.0.0 Mobile Safari/537.36`,
+          'Accept-Language': 'en-IN,en-GB;q=0.9,en;q=0.8,hi;q=0.7',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+          'Sec-Ch-Ua': `"Not/A)Brand";v="8", "Chromium";v="${chromeVersion}", "Google Chrome";v="${chromeVersion}"`,
+          'Sec-Ch-Ua-Mobile': '?1',
+          'Sec-Ch-Ua-Platform': '"Android"',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+          'Sec-Fetch-User': '?1',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache',
+          'Connection': 'keep-alive',
+          // Random token emulation to bypass target locks
+          'Cookie': `sn=${Math.random().toString(36).substring(2, 10)};` 
+        },
+      });
+      if (response.data) return response.data;
+    } catch (err) {
+      if (i === retries - 1) throw err; // Agar aakhri retry bhi fail ho jaye toh error throw karo
+      await delay(1500); // Fail hone par 1.5s ruko fir try karo
+    }
+  }
+}
+
+// ─── FLIPKART STOCK CHECK ENGINE ───────────────────────────────
 async function checkFlipkart(url) {
   try {
-    const chromeVersion = Math.floor(Math.random() * (126 - 120) + 120);
-    const { data } = await axios.get(url, {
-      timeout: 9000, // Fast timeout for parallel speed
-      headers: {
-        'User-Agent': `Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeVersion}.0.0.0 Mobile Safari/537.36`,
-        'Accept-Language': 'en-IN,en-GB;q=0.9,en;q=0.8',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'Sec-Ch-Ua': `"Not/A)Brand";v="8", "Chromium";v="${chromeVersion}", "Google Chrome";v="${chromeVersion}"`,
-        'Sec-Ch-Ua-Mobile': '?1',
-        'Sec-Ch-Ua-Platform': '"Android"',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
-        'Sec-Fetch-User': '?1',
-        'Cache-Control': 'max-age=0',
-        'Connection': 'keep-alive'
-      },
-    });
+    // Dynamic micro-delay to prevent batch blocking
+    await delay(Math.floor(Math.random() * 2000));
+    
+    const htmlData = await fetchWithRetry(url);
+    const $ = cheerio.load(htmlData);
 
-    const $ = cheerio.load(data);
-
-    // Dynamic selectors targeting mobile + desktop layouts
+    // Dynamic product name picking
     let productName = $('h1').text().trim()
       || $('span.VU-ZEz').first().text().trim()
       || $('h1._6EBuvT span').first().text().trim()
@@ -84,15 +105,15 @@ async function checkFlipkart(url) {
 
     const bodyText = $.root().text();
     
-    // Accurate stock engine
+    // Highly accurate stock parsing
     const hasBuyNow = /buy\s*now/i.test(bodyText) || /add\s*to\s*cart/i.test(bodyText);
     const isOutOfStock = /out\s*of\s*stock/i.test(bodyText) || /sold\s*out/i.test(bodyText) || /coming\s*soon/i.test(bodyText);
     
     const inStock = hasBuyNow && !isOutOfStock;
 
-    return { inStock, productName: productName.slice(0, 80), extra: extra.slice(0, 60) };
+    return { inStock, productName: productName.slice(0, 80), extra: extra.slice(0, 60), error: false };
   } catch (err) {
-    console.error(`Fetch error on link:`, err.message);
+    console.error(`Scraper completely blocked or timed out for link:`, err.message);
     return { inStock: false, productName: null, extra: '', error: true };
   }
 }
@@ -139,13 +160,12 @@ function startTracking(chatId, url) {
       return;
     }
 
-    // Direct fetch (No await queue delays between other links!)
     const result = await checkFlipkart(url);
     
     if (!result.error && result.productName) {
       trackObj.name = result.productName;
     } else if (trackObj.name === '📋 Fetching Name...') {
-      trackObj.name = 'Flipkart Track Link';
+      trackObj.name = 'Flipkart Tracked Item';
     }
 
     if (!currentTracks.includes(trackObj)) {
@@ -166,7 +186,6 @@ function startTracking(chatId, url) {
   };
 
   run(); 
-  // Individual thread isolated loop triggers perfectly every 15000ms
   trackObj.intervalId = setInterval(run, CHECK_INTERVAL);
 }
 
