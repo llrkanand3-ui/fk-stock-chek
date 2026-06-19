@@ -9,7 +9,7 @@ const ADMIN    = parseInt(process.env.ADMIN_ID || '7485181331', 10);
 const PORT     = parseInt(process.env.PORT     || '10000',      10);
 const APP_URL  = process.env.RENDER_EXTERNAL_URL || '';
 const MAX_TRACKS = 20; 
-const CHECK_INTERVAL = 15000; // 15s base interval
+const CHECK_INTERVAL = 15000; // Har link parallelly exact 15s me check hogi
 
 // ─── STATE ─────────────────────────────────────────────────────
 const approvedUsers = new Set([ADMIN]);   
@@ -43,33 +43,31 @@ function esc(str) {
     .replace(/>/g, '&gt;');
 }
 
-// Helper function for artificial human delay (Anti-Bot Block)
-const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-// ─── FLIPKART STOCK CHECK (ANTI-BAN SCRAPER) ───────────────────
+// ─── ANTI-BLOCK FLIPKART PARALLEL SCRAPER ──────────────────────
 async function checkFlipkart(url) {
   try {
-    // Random Delay taaki Flipkart block na kare (3-5 seconds gap)
-    const randomDelay = Math.floor(Math.random() * (5000 - 3000) + 3000);
-    await delay(randomDelay);
-
+    const chromeVersion = Math.floor(Math.random() * (126 - 120) + 120);
     const { data } = await axios.get(url, {
-      timeout: 10000,
+      timeout: 9000, // Fast timeout for parallel speed
       headers: {
-        // Dynamic user agents rotation
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/' + Math.floor(Math.random() * (126 - 120) + 120) + '.0.0.0 Safari/537.36',
-        'Accept-Language': 'en-IN,en;q=0.9,hi;q=0.8',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache',
-        'Upgrade-Insecure-Requests': '1',
+        'User-Agent': `Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeVersion}.0.0.0 Mobile Safari/537.36`,
+        'Accept-Language': 'en-IN,en-GB;q=0.9,en;q=0.8',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Sec-Ch-Ua': `"Not/A)Brand";v="8", "Chromium";v="${chromeVersion}", "Google Chrome";v="${chromeVersion}"`,
+        'Sec-Ch-Ua-Mobile': '?1',
+        'Sec-Ch-Ua-Platform': '"Android"',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Cache-Control': 'max-age=0',
         'Connection': 'keep-alive'
       },
     });
 
     const $ = cheerio.load(data);
 
-    // Strict Name Pickers
+    // Dynamic selectors targeting mobile + desktop layouts
     let productName = $('h1').text().trim()
       || $('span.VU-ZEz').first().text().trim()
       || $('h1._6EBuvT span').first().text().trim()
@@ -86,7 +84,7 @@ async function checkFlipkart(url) {
 
     const bodyText = $.root().text();
     
-    // Smart Stock Detection
+    // Accurate stock engine
     const hasBuyNow = /buy\s*now/i.test(bodyText) || /add\s*to\s*cart/i.test(bodyText);
     const isOutOfStock = /out\s*of\s*stock/i.test(bodyText) || /sold\s*out/i.test(bodyText) || /coming\s*soon/i.test(bodyText);
     
@@ -94,8 +92,7 @@ async function checkFlipkart(url) {
 
     return { inStock, productName: productName.slice(0, 80), extra: extra.slice(0, 60) };
   } catch (err) {
-    console.error(`Scrape Error for ${url.slice(0,30)}... :`, err.message);
-    // Return custom error so that loop continues instead of freezing
+    console.error(`Fetch error on link:`, err.message);
     return { inStock: false, productName: null, extra: '', error: true };
   }
 }
@@ -142,9 +139,9 @@ function startTracking(chatId, url) {
       return;
     }
 
+    // Direct fetch (No await queue delays between other links!)
     const result = await checkFlipkart(url);
     
-    // Agar scrape bina error ke chal gaya toh hi name aur state badlo
     if (!result.error && result.productName) {
       trackObj.name = result.productName;
     } else if (trackObj.name === '📋 Fetching Name...') {
@@ -162,13 +159,14 @@ function startTracking(chatId, url) {
         `🔥 <b>LIVE IN STOCK! (Stop ${currentIdx})</b>\n\n` +
         `📦 <b>${esc(trackObj.name)}</b>\n` +
         (result.extra ? `💾 ${esc(result.extra)}\n` : '') +
-        `🚨 <i>Yeh message har 15s mein tab tak aayega jab tak stock khatam nahi hota ya aap stop nahi karte!</i>\n\n` +
+        `🚨 <i>Bina ruke har 15s me alert chalu rahega jab tak stock hai!</i>\n\n` +
         `🔗 <a href="${url}">Flipkart Pe Dekho</a>`
       );
     }
   };
 
   run(); 
+  // Individual thread isolated loop triggers perfectly every 15000ms
   trackObj.intervalId = setInterval(run, CHECK_INTERVAL);
 }
 
