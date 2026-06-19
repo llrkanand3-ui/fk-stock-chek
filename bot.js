@@ -9,7 +9,7 @@ const ADMIN    = parseInt(process.env.ADMIN_ID || '7485181331', 10);
 const PORT     = parseInt(process.env.PORT     || '10000',      10);
 const APP_URL  = process.env.RENDER_EXTERNAL_URL || '';
 const MAX_TRACKS = 20; 
-const CHECK_INTERVAL = 15000; // 15s
+const CHECK_INTERVAL = 15000; // 15s base interval
 
 // ─── STATE ─────────────────────────────────────────────────────
 const approvedUsers = new Set([ADMIN]);   
@@ -43,23 +43,33 @@ function esc(str) {
     .replace(/>/g, '&gt;');
 }
 
-// ─── FLIPKART STOCK CHECK ──────────────────────────────────────
+// Helper function for artificial human delay (Anti-Bot Block)
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// ─── FLIPKART STOCK CHECK (ANTI-BAN SCRAPER) ───────────────────
 async function checkFlipkart(url) {
   try {
+    // Random Delay taaki Flipkart block na kare (3-5 seconds gap)
+    const randomDelay = Math.floor(Math.random() * (5000 - 3000) + 3000);
+    await delay(randomDelay);
+
     const { data } = await axios.get(url, {
-      timeout: 12000,
+      timeout: 10000,
       headers: {
+        // Dynamic user agents rotation
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/' + Math.floor(Math.random() * (126 - 120) + 120) + '.0.0.0 Safari/537.36',
-        'Accept-Language': 'en-IN,en;q=0.9',
+        'Accept-Language': 'en-IN,en;q=0.9,hi;q=0.8',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
         'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache'
+        'Pragma': 'no-cache',
+        'Upgrade-Insecure-Requests': '1',
+        'Connection': 'keep-alive'
       },
     });
 
     const $ = cheerio.load(data);
 
-    // Bulletproof name selection
+    // Strict Name Pickers
     let productName = $('h1').text().trim()
       || $('span.VU-ZEz').first().text().trim()
       || $('h1._6EBuvT span').first().text().trim()
@@ -76,16 +86,17 @@ async function checkFlipkart(url) {
 
     const bodyText = $.root().text();
     
-    // Live stock condition
+    // Smart Stock Detection
     const hasBuyNow = /buy\s*now/i.test(bodyText) || /add\s*to\s*cart/i.test(bodyText);
-    const isOutOfStock = /out\s*of\s*stock/i.test(bodyText) || /sold\s*out/i.test(bodyText);
+    const isOutOfStock = /out\s*of\s*stock/i.test(bodyText) || /sold\s*out/i.test(bodyText) || /coming\s*soon/i.test(bodyText);
     
     const inStock = hasBuyNow && !isOutOfStock;
 
     return { inStock, productName: productName.slice(0, 80), extra: extra.slice(0, 60) };
   } catch (err) {
-    console.error('checkFlipkart error:', err.message);
-    return { inStock: false, productName: 'Fetch Failed (Retrying...)', extra: '', error: err.message };
+    console.error(`Scrape Error for ${url.slice(0,30)}... :`, err.message);
+    // Return custom error so that loop continues instead of freezing
+    return { inStock: false, productName: null, extra: '', error: true };
   }
 }
 
@@ -133,10 +144,11 @@ function startTracking(chatId, url) {
 
     const result = await checkFlipkart(url);
     
-    if (result.productName && result.productName !== 'Fetch Failed (Retrying...)') {
+    // Agar scrape bina error ke chal gaya toh hi name aur state badlo
+    if (!result.error && result.productName) {
       trackObj.name = result.productName;
     } else if (trackObj.name === '📋 Fetching Name...') {
-      trackObj.name = 'Flipkart Product';
+      trackObj.name = 'Flipkart Track Link';
     }
 
     if (!currentTracks.includes(trackObj)) {
@@ -269,9 +281,7 @@ bot.on('message', async (msg) => {
     return sendHTML(chatId, '❌ Invalid selection.');
   }
 
-  // ── CRITICAL FIX: EXTRACT LINK FROM TEXT (App Share Fix) ──
   if (text.includes('flipkart.com') || text.includes('dl.flipkart.com')) {
-    // Regex matches the actual URL starting from http/https up to the space or end of string
     const urlMatch = text.match(/https?:\/\/[^\s]+/);
     if (urlMatch) {
       const cleanUrl = urlMatch[0];
