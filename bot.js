@@ -4,18 +4,17 @@ const cheerio = require('cheerio');
 const express = require('express');
 
 // ─── CONFIG ────────────────────────────────────────────────────
-// NEW SECURE TOKEN APPLIED SUCESSFULLY 👍
 const TOKEN    = process.env.BOT_TOKEN  || '8901855590:AAGGeCWXY3bxyHhcO89p0oXqQHrmT6iuAlI';
 const ADMIN    = parseInt(process.env.ADMIN_ID || '7485181331', 10);
 const PORT     = parseInt(process.env.PORT     || '10000',      10);
 const APP_URL = process.env.RENDER_EXTERNAL_URL || '';
-const MAX_TRACKS = 20; // Max limit is now 20 tracks!
-const CHECK_INTERVAL = 15000; // 15s
+const MAX_TRACKS = 20; 
+const CHECK_INTERVAL = 15000; // 15s mein real check hoga
 
 // ─── STATE ─────────────────────────────────────────────────────
-const approvedUsers = new Set([ADMIN]);   // admin always approved
-const pendingUsers  = new Map();          // chatId -> {username, name}
-const userTracks    = new Map();          // chatId -> [ {url, name, intervalId} ]
+const approvedUsers = new Set([ADMIN]);   
+const pendingUsers  = new Map();          
+const userTracks    = new Map();          
 
 // ─── EXPRESS KEEP-ALIVE ────────────────────────────────────────
 const app = express();
@@ -31,14 +30,12 @@ if (APP_URL) {
 // ─── BOT ───────────────────────────────────────────────────────
 const bot = new TelegramBot(TOKEN, { polling: true });
 
-// Safely send HTML message
 function sendHTML(chatId, text) {
   return bot.sendMessage(chatId, text, { parse_mode: 'HTML' }).catch(err => {
     console.error('sendMessage error:', err.message);
   });
 }
 
-// Escape HTML special chars
 function esc(str) {
   return String(str)
     .replace(/&/g, '&amp;')
@@ -50,9 +47,9 @@ function esc(str) {
 async function checkFlipkart(url) {
   try {
     const { data } = await axios.get(url, {
-      timeout: 15000,
+      timeout: 12000,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, healthiest/Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         'Accept-Language': 'en-IN,en;q=0.9',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       },
@@ -60,21 +57,18 @@ async function checkFlipkart(url) {
 
     const $ = cheerio.load(data);
 
-    // Product name
     let productName = $('span.VU-ZEz').first().text().trim()
       || $('h1._6EBuvT span').first().text().trim()
       || $('h1.yhB1nd').first().text().trim()
       || $('title').text().replace('- Buy', '').trim()
       || 'Product';
 
-    // Extra info (storage/RAM)
     let extra = '';
     $('div._8Cs33M a, ul._RH_-d li').each((_, el) => {
       const t = $(el).text().trim();
       if (t) extra += ' ' + t;
     });
 
-    // In-stock check — look for "Buy Now"
     const bodyText = $.root().text();
     const inStock  = /buy\s*now/i.test(bodyText);
 
@@ -122,11 +116,13 @@ function startTracking(chatId, url) {
 
   const run = async () => {
     const currentTracks = getTracks(chatId);
+    // Track stop ho gaya ho toh loop tod do
     if (!currentTracks.includes(trackObj)) {
       if (trackObj.intervalId) clearInterval(trackObj.intervalId);
       return;
     }
 
+    // Har 15 sec mein REAL flipkart live check
     const result = await checkFlipkart(url);
     trackObj.name = result.productName;
 
@@ -135,12 +131,14 @@ function startTracking(chatId, url) {
       return;
     }
 
+    // CRITICAL LOGIC: Agar stock hai, toh bina ruke alert bhejta rahega har 15s mein
     if (result.inStock) {
       const currentIdx = currentTracks.indexOf(trackObj) + 1;
       await sendHTML(chatId,
-        `✅ <b>IN STOCK! (Stop ${currentIdx})</b>\n\n` +
+        `🔥 <b>LIVE IN STOCK! (Stop ${currentIdx})</b>\n\n` +
         `📦 <b>${esc(result.productName)}</b>\n` +
         (result.extra ? `💾 ${esc(result.extra)}\n` : '') +
+        `🚨 <i>Yeh message har 15s mein tab tak aayega jab tak stock khatam nahi hota ya aap stop nahi karte!</i>\n\n` +
         `🔗 <a href="${url}">Flipkart Pe Dekho</a>`
       );
     }
@@ -190,7 +188,6 @@ bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text   = (msg.text || '').trim();
 
-  // ── Admin commands ──
   if (chatId === ADMIN) {
     if (text === '/users') {
       const lines = [`<b>Approved users (${approvedUsers.size}):</b>`];
@@ -208,7 +205,6 @@ bot.on('message', async (msg) => {
     }
   }
 
-  // ── Access check ──
   if (!approvedUsers.has(chatId)) {
     if (pendingUsers.has(chatId)) {
       return sendHTML(chatId, '⏳ Aapki request pending hai. Admin approve karega.');
@@ -220,7 +216,6 @@ bot.on('message', async (msg) => {
     return sendHTML(chatId, '👋 Access request bhej di! Admin approve karega.');
   }
 
-  // ── /start ──
   if (text === '/start') {
     return bot.sendMessage(chatId,
       '🛒 <b>Flipkart Stock Tracker</b>\n\nKoi bhi Flipkart link paste karo — main track karunga aur jab "Buy Now" aaye toh alert karunga!',
@@ -228,7 +223,6 @@ bot.on('message', async (msg) => {
     );
   }
 
-  // ── FIXED BUTTON MATCHING ──
   if (text.includes('Track New Link')) {
     return sendHTML(chatId, '🔗 Flipkart product ka URL paste karo:');
   }
@@ -252,7 +246,6 @@ bot.on('message', async (msg) => {
     return bot.sendMessage(chatId, 'Main menu:', mainMenuKeyboard());
   }
 
-  // ── Stop track by button ──
   const stopMatch = text.match(/Stop (\d+):/);
   if (stopMatch) {
     const idx = parseInt(stopMatch[1], 10) - 1;
@@ -264,12 +257,10 @@ bot.on('message', async (msg) => {
     return sendHTML(chatId, '❌ Invalid selection.');
   }
 
-  // ── URL tracking ──
   if (text.includes('flipkart.com') || text.includes('dl.flipkart.com')) {
     return startTracking(chatId, text);
   }
 
-  // ── Unknown ──
   sendHTML(chatId, '❓ Koi Flipkart link bhejo ya menu se option choose karo.');
 });
 
