@@ -4,7 +4,7 @@ const cheerio = require('cheerio');
 const express = require('express');
 
 // ─── CONFIG ────────────────────────────────────────────────────
-const TOKEN   = process.env.BOT_TOKEN  || '8901855590:AAGGeCWXY3bxyHhcO89p0oXqQHrmT6iuAlI';
+const TOKEN   = process.env.BOT_TOKEN  || '8901855590:AAH9iYDv28cQsJUE8izp_55rICNfBAGgflI';
 const ADMIN   = parseInt(process.env.ADMIN_ID || '7485181331', 10);
 const PORT    = parseInt(process.env.PORT     || '10000',      10);
 const APP_URL = process.env.RENDER_EXTERNAL_URL || '';
